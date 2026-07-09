@@ -2,19 +2,12 @@ import { sql } from "drizzle-orm";
 import { pgTableCreator, text, timestamp } from "drizzle-orm/pg-core";
 import { monotonicFactory } from "ulid";
 
-/**
- * Prefix every table with `rp_`
- * (Roster Pro)
- *
- * Makes future integrations
- * much easier.
- */
 export const createTable = pgTableCreator((name) => `rp_${name}`);
 
 const ulid = monotonicFactory();
 
 /**
- * Primary Key
+ * Primary key
  */
 export const idColumn = () =>
   text("id")
@@ -22,8 +15,7 @@ export const idColumn = () =>
     .$defaultFn(() => ulid());
 
 /**
- * created_at
- * updated_at
+ * Standard audit columns
  */
 export const timestamps = () => ({
   createdAt: timestamp("created_at", {
@@ -39,3 +31,16 @@ export const timestamps = () => ({
     .$onUpdate(() => sql`CURRENT_TIMESTAMP`)
     .notNull(),
 });
+
+/**
+ * Generic foreign key column.
+ *
+ * Example:
+ *
+ * foreignKey("restaurant")
+ *
+ * creates
+ *
+ * restaurant_id
+ */
+export const foreignKey = (name: string) => text(`${name}_id`).notNull();
