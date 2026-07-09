@@ -1,0 +1,59 @@
+{
+  "id": "9adfe4bd-684e-4070-aec0-e9042c95b503",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {},
+  "enums": {
+    "public.employee_role": {
+      "name": "employee_role",
+      "schema": "public",
+      "values": [
+        "manager",
+        "bartender",
+        "barback",
+        "waiter",
+        "host"
+      ]
+    },
+    "public.employment_type": {
+      "name": "employment_type",
+      "schema": "public",
+      "values": [
+        "full_time",
+        "part_time",
+        "casual"
+      ]
+    },
+    "public.schedule_status": {
+      "name": "schedule_status",
+      "schema": "public",
+      "values": [
+        "draft",
+        "published",
+        "archived"
+      ]
+    },
+    "public.shift_type": {
+      "name": "shift_type",
+      "schema": "public",
+      "values": [
+        "off",
+        "opening",
+        "mid",
+        "closing",
+        "double"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
