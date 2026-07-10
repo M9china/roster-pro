@@ -1,0 +1,1 @@
+ALTER TABLE "rp_restaurants" RENAME COLUMN "timezone" TO "time_zone";
