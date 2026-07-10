@@ -27,3 +27,18 @@ export const scheduleStatusEnum = pgEnum("schedule_status", [
   "published",
   "archived",
 ]);
+
+export const servicePeriodEnum = pgEnum("service_period", [
+  "breakfast",
+  "lunch",
+  "dinner",
+  "full_day",
+]);
+
+export const demandLevelEnum = pgEnum("demand_level", [
+  "very_low",
+  "low",
+  "normal",
+  "high",
+  "very_high",
+]);
