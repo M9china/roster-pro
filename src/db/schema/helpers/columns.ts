@@ -43,4 +43,13 @@ export const timestamps = () => ({
  *
  * restaurant_id
  */
-export const foreignKey = (name: string) => text(`${name}_id`).notNull();
+export const foreignKey = (
+  name: string,
+  options?: {
+    nullable?: boolean;
+  },
+) => {
+  const column = text(`${name}_id`);
+
+  return options?.nullable ? column : column.notNull();
+};
