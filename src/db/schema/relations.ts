@@ -13,3 +13,10 @@ export const restaurantRelations = relations(restaurant, ({ one }) => ({
     references: [organizations.id],
   }),
 }));
+
+export const employeeRelations = relations(restaurant, ({ one }) => ({
+  restaurant: one(restaurant, {
+    fields: [restaurant.id],
+    references: [restaurant.id],
+  }),
+}));
