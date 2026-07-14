@@ -8,6 +8,7 @@ import {
 } from "./helpers/columns";
 
 import { organization } from "./organizations";
+import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const restaurant = createTable(
   "restaurants",
@@ -42,3 +43,6 @@ export const restaurant = createTable(
     ),
   }),
 );
+
+export type Restaurant = InferSelectModel<typeof restaurant>;
+export type NewRestaurant = InferInsertModel<typeof restaurant>;

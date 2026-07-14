@@ -17,6 +17,7 @@ import {
 import { demandLevelEnum, servicePeriodEnum } from "./enums";
 
 import { restaurant } from "./restaurant";
+import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const serviceForecast = createTable(
   "service_forecasts",
@@ -58,3 +59,6 @@ export const serviceForecast = createTable(
     ),
   }),
 );
+
+export type ServiceForecast = InferSelectModel<typeof serviceForecast>;
+export type NewServiceForecast = InferInsertModel<typeof serviceForecast>;

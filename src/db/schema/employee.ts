@@ -10,6 +10,7 @@ import {
 import { employeeRoleEnum, employmentTypeEnum } from "./enums";
 
 import { restaurant } from "./restaurant";
+import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const employee = createTable(
   "employees",
@@ -44,3 +45,6 @@ export const employee = createTable(
     emailIdx: index("employees_email_idx").on(table.email),
   }),
 );
+
+export type Employee = InferSelectModel<typeof employee>;
+export type NewEmployee = InferInsertModel<typeof employee>;
