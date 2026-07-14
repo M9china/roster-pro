@@ -1,60 +1,30 @@
-import type { ServiceForecast } from "@/db/schema";
+import { STAFFING_LEVELS } from "../constants/staffing-levels";
 
-import type { StaffingRequirement } from "../models/staffing-requirement";
-import { StaffingCalculator } from "./staffing-calculator";
+import type { StaffingCalculator } from "./staffing-calculator";
+import type { StaffingCalculationContext } from "./staffing-calculation-context";
+import type {
+  StaffingCalculationResult,
+  StaffingCalculationWarning,
+} from "./staffing-calculation-result";
 
 export class DefaultStaffingCalculator implements StaffingCalculator {
-  calculate(forecast: ServiceForecast): StaffingRequirement {
-    switch (forecast.demandLevel) {
-      case "very_low":
-        return {
-          totalBartenders: 2,
-          openingBartenders: 1,
-          midBartenders: 0,
-          closingBartenders: 1,
-          doubleShifts: 0,
-          earlyFinishes: 0,
-        };
+  calculate(context: StaffingCalculationContext): StaffingCalculationResult {
+    const requirement = STAFFING_LEVELS[context.forecast.demandLevel];
 
-      case "low":
-        return {
-          totalBartenders: 3,
-          openingBartenders: 1,
-          midBartenders: 1,
-          closingBartenders: 1,
-          doubleShifts: 0,
-          earlyFinishes: 0,
-        };
+    const warnings: StaffingCalculationWarning[] = [];
+    const availableCount = context.availableEmployees.length;
 
-      case "normal":
-        return {
-          totalBartenders: 5,
-          openingBartenders: 2,
-          midBartenders: 1,
-          closingBartenders: 2,
-          doubleShifts: 0,
-          earlyFinishes: 1,
-        };
-
-      case "high":
-        return {
-          totalBartenders: 6,
-          openingBartenders: 2,
-          midBartenders: 2,
-          closingBartenders: 2,
-          doubleShifts: 1,
-          earlyFinishes: 2,
-        };
-
-      case "very_high":
-        return {
-          totalBartenders: 8,
-          openingBartenders: 3,
-          midBartenders: 2,
-          closingBartenders: 3,
-          doubleShifts: 2,
-          earlyFinishes: 3,
-        };
+    if (requirement.totalBartenders > availableCount) {
+      warnings.push({
+        code: "INSUFFICIENT_STAFF",
+        message:
+          "Forecast requires more bartenders than are currently available.",
+      });
     }
+
+    return {
+      requirement,
+      warnings,
+    };
   }
 }
