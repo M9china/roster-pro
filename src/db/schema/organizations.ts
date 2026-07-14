@@ -2,7 +2,7 @@ import { text, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { createTable, idColumn, timestamps } from "./helpers/columns";
 
-export const organizations = createTable(
+export const organization = createTable(
   "organizations",
   {
     id: idColumn(),

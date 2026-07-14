@@ -7,7 +7,7 @@ import {
   timestamps,
 } from "./helpers/columns";
 
-import { organizations } from "./organization";
+import { organization } from "./organizations";
 
 export const restaurant = createTable(
   "restaurants",
@@ -15,7 +15,7 @@ export const restaurant = createTable(
     id: idColumn(),
 
     organizationId: foreignKey("organization").references(
-      () => organizations.id,
+      () => organization.id,
       {
         onDelete: "cascade",
       },
