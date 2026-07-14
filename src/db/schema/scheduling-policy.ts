@@ -14,6 +14,7 @@ import {
 } from "./helpers/columns";
 
 import { restaurant } from "./restaurant";
+import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const schedulingPolicy = createTable(
   "scheduling_policies",
@@ -60,3 +61,6 @@ export const schedulingPolicy = createTable(
     ),
   }),
 );
+export type SchedulingPolicy = InferSelectModel<typeof schedulingPolicy>;
+
+export type NewSchedulingPolicy = InferInsertModel<typeof schedulingPolicy>;
