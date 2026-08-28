@@ -1,11 +1,7 @@
 import type { PlanningEmployee } from "../models/employee";
 
-export interface EmployeeFairnessScore {
+export interface FairnessResult {
   employee: PlanningEmployee;
 
   score: number;
-}
-
-export interface FairnessResult {
-  scores: EmployeeFairnessScore[];
 }

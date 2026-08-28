@@ -1,7 +1,17 @@
 import type { PlanningEmployee } from "../models/employee";
 
 export interface FairnessContext {
-  employees: PlanningEmployee[];
+  employee: PlanningEmployee;
 
-  weekStart: Date;
+  shiftsWorked: number;
+
+  weekendShiftsWorked: number;
+
+  closingShiftsWorked: number;
+
+  doubleShiftsWorked: number;
+
+  consecutiveDaysWorked: number;
+
+  daysOffAssigned: number;
 }
