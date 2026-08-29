@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { PlanningEmployee } from "../../models/employee";
 import type { FairnessContext } from "../fairness-context";
-import type { FairnessFactor } from "../fairness-factor";
+import type { FairnessFactor } from "../factors/fairness-factor";
 import { DefaultFairnessEngine } from "../default-fairness-engine";
 import { ShiftCountFactor } from "../factors/shift-count-factor";
 import { FairnessAssignment } from "../fairness-assignment";
 import { WeekendShiftFactor } from "../factors/weekend-shift-factor";
+import { DoubleShiftFactor } from "../factors/double-shift-factor";
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -198,5 +199,33 @@ describe("DefaultFairnessEngine", () => {
   expect(employeeBScore).toBe(-4);
 
   expect(employeeAScore).toBeGreaterThan(employeeBScore);
+});
+it("combines double shift fairness with other factors", () => {
+  const employee = createEmployee();
+
+  const engine = new DefaultFairnessEngine([
+    new ShiftCountFactor(),
+    new DoubleShiftFactor(),
+  ]);
+
+  const result = engine.evaluate(
+    createContext({
+      employees: [employee],
+      assignments: [
+        {
+          employeeId: employee.id,
+          date: new Date("2026-08-24"),
+          shiftType: "opening",
+        },
+        {
+          employeeId: employee.id,
+          date: new Date("2026-08-25"),
+          shiftType: "double",
+        },
+      ],
+    }),
+  );
+
+  expect(result.scores[0].score).toBe(-3);
 });
 });

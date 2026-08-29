@@ -1,5 +1,5 @@
 import type { FairnessContext } from "../fairness-context";
-import type { FairnessFactor } from "../fairness-factor";
+import type { FairnessFactor } from "./fairness-factor";
 
 export class WeekendShiftFactor implements FairnessFactor {
   calculate(employeeId: string, context: FairnessContext): number {

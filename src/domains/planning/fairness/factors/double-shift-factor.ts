@@ -1,18 +1,18 @@
 import type { FairnessContext } from "../fairness-context";
 import type { FairnessFactor } from "./fairness-factor";
 
-export class ClosingShiftFactor implements FairnessFactor {
+export class DoubleShiftFactor implements FairnessFactor {
   calculate(employeeId: string, context: FairnessContext): number {
-    const closingShifts = context.assignments.filter(
+    const doubleShifts = context.assignments.filter(
       (assignment) =>
         assignment.employeeId === employeeId &&
-        assignment.shiftType === "closing",
+        assignment.shiftType === "double",
     ).length;
 
-    if (closingShifts === 0) {
+    if (doubleShifts === 0) {
       return 0;
     }
 
-    return -closingShifts;
+    return -doubleShifts;
   }
 }

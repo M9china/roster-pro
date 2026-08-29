@@ -1,17 +1,21 @@
-export function isNextCalendarDay(previousDate: Date, nextDate: Date): boolean {
-  const previous = new Date(
-    previousDate.getFullYear(),
-    previousDate.getMonth(),
-    previousDate.getDate(),
+export function isSameCalendarDay(first: Date, second: Date): boolean {
+  return (
+    first.getFullYear() === second.getFullYear() &&
+    first.getMonth() === second.getMonth() &&
+    first.getDate() === second.getDate()
+  );
+}
+
+export function isNextCalendarDay(previous: Date, next: Date): boolean {
+  const previousDay = new Date(
+    previous.getFullYear(),
+    previous.getMonth(),
+    previous.getDate(),
   );
 
-  const next = new Date(
-    nextDate.getFullYear(),
-    nextDate.getMonth(),
-    nextDate.getDate(),
-  );
+  const nextDay = new Date(next.getFullYear(), next.getMonth(), next.getDate());
 
-  const difference = next.getTime() - previous.getTime();
+  previousDay.setDate(previousDay.getDate() + 1);
 
-  return difference === 24 * 60 * 60 * 1000;
+  return isSameCalendarDay(previousDay, nextDay);
 }

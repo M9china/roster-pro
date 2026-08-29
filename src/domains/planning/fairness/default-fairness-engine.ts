@@ -1,7 +1,7 @@
 import type { FairnessEngine } from "./fairness-engine";
 import type { FairnessContext } from "./fairness-context";
 import type { EmployeeFairnessScore, FairnessResult } from "./fairness-result";
-import type { FairnessFactor } from "./fairness-factor";
+import type { FairnessFactor } from "./factors/fairness-factor";
 
 export class DefaultFairnessEngine implements FairnessEngine {
   constructor(private readonly factors: FairnessFactor[]) {}
