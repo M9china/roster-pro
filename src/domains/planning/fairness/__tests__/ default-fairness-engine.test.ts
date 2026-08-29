@@ -6,6 +6,7 @@ import type { FairnessFactor } from "../fairness-factor";
 import { DefaultFairnessEngine } from "../default-fairness-engine";
 import { ShiftCountFactor } from "../factors/shift-count-factor";
 import { FairnessAssignment } from "../fairness-assignment";
+import { WeekendShiftFactor } from "../factors/weekend-shift-factor";
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -137,4 +138,65 @@ describe("DefaultFairnessEngine", () => {
 
     expect(result.scores[0].score).toBe(-8);
   });
+
+  it("combines shift count and weekend fairness", () => {
+  const employeeA = createEmployee({
+    id: "employee-a",
+  });
+
+  const employeeB = createEmployee({
+    id: "employee-b",
+  });
+
+  const assignments: FairnessAssignment[] = [
+    // Employee A: 2 total shifts, 1 weekend shift
+    {
+      employeeId: "employee-a",
+      date: new Date("2026-08-24"), // Monday
+      shiftType: "opening",
+    },
+    {
+      employeeId: "employee-a",
+      date: new Date("2026-08-28"), // Friday
+      shiftType: "opening",
+    },
+
+    // Employee B: 2 total shifts, 2 weekend shifts
+    {
+      employeeId: "employee-b",
+      date: new Date("2026-08-28"), // Friday
+      shiftType: "opening",
+    },
+    {
+      employeeId: "employee-b",
+      date: new Date("2026-08-29"), // Saturday
+      shiftType: "opening",
+    },
+  ];
+
+  const engine = new DefaultFairnessEngine([
+    new ShiftCountFactor(),
+    new WeekendShiftFactor(),
+  ]);
+
+  const result = engine.evaluate(
+    createContext({
+      employees: [employeeA, employeeB],
+      assignments,
+    }),
+  );
+
+  const employeeAScore = result.scores.find(
+    (score) => score.employee.id === employeeA.id,
+  )!.score;
+
+  const employeeBScore = result.scores.find(
+    (score) => score.employee.id === employeeB.id,
+  )!.score;
+
+  expect(employeeAScore).toBe(-3);
+  expect(employeeBScore).toBe(-4);
+
+  expect(employeeAScore).toBeGreaterThan(employeeBScore);
+});
 });
