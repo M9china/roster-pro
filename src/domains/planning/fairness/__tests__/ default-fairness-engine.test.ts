@@ -5,6 +5,7 @@ import type { FairnessContext } from "../fairness-context";
 import type { FairnessFactor } from "../fairness-factor";
 import { DefaultFairnessEngine } from "../default-fairness-engine";
 import { ShiftCountFactor } from "../factors/shift-count-factor";
+import { FairnessAssignment } from "../fairness-assignment";
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -25,65 +26,76 @@ function createContext(
   overrides: Partial<FairnessContext> = {},
 ): FairnessContext {
   return {
-    employee: createEmployee(),
-    shiftsWorked: 0,
-    weekendShiftsWorked: 0,
-    closingShiftsWorked: 0,
-    doubleShiftsWorked: 0,
-    consecutiveDaysWorked: 0,
-    daysOffAssigned: 0,
+    employees: [createEmployee()],
+    assignments: [],
+    weekStart: new Date("2026-08-24"),
     ...overrides,
   };
 }
 
+function createAssignments(
+  employeeId: string,
+  count: number,
+): FairnessAssignment[] {
+  return Array.from({ length: count }, (_, index) => ({
+    employeeId,
+    date: new Date(`2026-08-${24 + index}`),
+    shiftType: "opening",
+  }));
+}
+
 describe("DefaultFairnessEngine", () => {
   it("gives an employee with no shifts a score of zero", () => {
-    const engine = new DefaultFairnessEngine([
-      new ShiftCountFactor(),
-    ]);
+    const engine = new DefaultFairnessEngine([new ShiftCountFactor()]);
+
+    const employee = createEmployee();
 
     const result = engine.evaluate(
       createContext({
-        shiftsWorked: 0,
+        employees: [employee],
+        assignments: [],
       }),
     );
 
-    expect(result.score).toBe(0);
+    expect(result.scores[0].score).toBe(0);
   });
 
   it("reduces the score as the employee works more shifts", () => {
-    const engine = new DefaultFairnessEngine([
-      new ShiftCountFactor(),
-    ]);
+  const employee = createEmployee();
 
-    const result = engine.evaluate(
-      createContext({
-        shiftsWorked: 4,
-      }),
-    );
+  const engine = new DefaultFairnessEngine([
+    new ShiftCountFactor(),
+  ]);
 
-    expect(result.score).toBe(-4);
-  });
+  const result = engine.evaluate(
+    createContext({
+      employees: [employee],
+      assignments: createAssignments(employee.id, 4),
+    }),
+  );
+
+  expect(result.scores[0].score).toBe(-4);
+});
 
   it("gives an employee with fewer shifts a higher score", () => {
-    const engine = new DefaultFairnessEngine([
-      new ShiftCountFactor(),
-    ]);
+    const engine = new DefaultFairnessEngine([new ShiftCountFactor()]);
 
     const employeeWithTwoShifts = engine.evaluate(
       createContext({
-        shiftsWorked: 2,
+        employees: [createEmployee()],
+        assignments: createAssignments("employee-1", 2),
       }),
     );
 
     const employeeWithFiveShifts = engine.evaluate(
       createContext({
-        shiftsWorked: 5,
+        employees: [createEmployee()],
+        assignments: createAssignments("employee-1", 5),
       }),
     );
 
-    expect(employeeWithTwoShifts.score).toBeGreaterThan(
-      employeeWithFiveShifts.score,
+    expect(employeeWithTwoShifts.scores[0].score).toBeGreaterThan(
+      employeeWithFiveShifts.scores[0].score,
     );
   });
 
@@ -94,17 +106,16 @@ describe("DefaultFairnessEngine", () => {
       lastName: "Smith",
     });
 
-    const engine = new DefaultFairnessEngine([
-      new ShiftCountFactor(),
-    ]);
+    const engine = new DefaultFairnessEngine([new ShiftCountFactor()]);
 
     const result = engine.evaluate(
       createContext({
-        employee,
+        employees: [employee],
+        assignments: [],
       }),
     );
 
-    expect(result.employee).toEqual(employee);
+    expect(result.scores[0].employee).toEqual(employee);
   });
 
   it("combines scores from multiple fairness factors", () => {
@@ -119,10 +130,11 @@ describe("DefaultFairnessEngine", () => {
 
     const result = engine.evaluate(
       createContext({
-        shiftsWorked: 3,
+        employees: [createEmployee()],
+        assignments: createAssignments("employee-1", 3),
       }),
     );
 
-    expect(result.score).toBe(-8);
+    expect(result.scores[0].score).toBe(-8);
   });
 });
