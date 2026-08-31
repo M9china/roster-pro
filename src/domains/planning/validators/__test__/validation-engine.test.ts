@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PlanningEmployee } from "../../models/employee";
 import type { ShiftAssignment } from "../../models/assigner";
 import type { AssignmentValidator } from "../validator";
-import { ValidationEngine } from "../validation-engine";
+import { DefaultValidationEngine, ValidationEngine } from "../validation-engine";
 
 const employee: PlanningEmployee = {
   id: "employee-1",
@@ -31,7 +31,7 @@ describe("ValidationEngine", () => {
       validate: vi.fn().mockReturnValue(true),
     };
 
-    const engine = new ValidationEngine([validatorOne, validatorTwo]);
+    const engine = new DefaultValidationEngine([validatorOne, validatorTwo]);
 
     const result = engine.validate(employee, shift, []);
 
@@ -47,7 +47,7 @@ describe("ValidationEngine", () => {
       validate: vi.fn().mockReturnValue(false),
     };
 
-    const engine = new ValidationEngine([passingValidator, failingValidator]);
+    const engine = new DefaultValidationEngine([passingValidator, failingValidator]);
 
     const result = engine.validate(employee, shift, []);
 
@@ -63,7 +63,7 @@ describe("ValidationEngine", () => {
       validate: vi.fn().mockReturnValue(true),
     };
 
-    const engine = new ValidationEngine([failingValidator, secondValidator]);
+    const engine = new DefaultValidationEngine([failingValidator, secondValidator]);
 
     const result = engine.validate(employee, shift, []);
 
@@ -83,7 +83,7 @@ describe("ValidationEngine", () => {
       },
     ];
 
-    const engine = new ValidationEngine([validator]);
+    const engine = new DefaultValidationEngine([validator]);
 
     engine.validate(employee, shift, existingAssignments);
 
@@ -95,7 +95,7 @@ describe("ValidationEngine", () => {
   });
 
   it("allows validation when there are no validators", () => {
-    const engine = new ValidationEngine([]);
+    const engine = new DefaultValidationEngine([]);
 
     const result = engine.validate(employee, shift, []);
 
