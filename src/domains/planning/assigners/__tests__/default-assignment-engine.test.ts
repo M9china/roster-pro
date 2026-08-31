@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PlanningEmployee } from "../../models/employee";
 import type { StaffingRequirement } from "../../models/staffing-requirement";
 import { DefaultAssignmentEngine } from "../default-assignment-engine";
+import { DefaultValidationEngine } from "../../validators";
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -50,7 +51,9 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 0,
     });
 
-    const engine = new DefaultAssignmentEngine();
+    const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
     const assignments = engine.assign(employees, requirement, date);
 
@@ -75,7 +78,9 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 0,
     });
 
-    const engine = new DefaultAssignmentEngine();
+    const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
     const assignments = engine.assign(employees, requirement, date);
 
@@ -100,8 +105,9 @@ describe("DefaultAssignmentEngine", () => {
       midBartenders: 0,
       closingBartenders: 2,
     });
-
-    const engine = new DefaultAssignmentEngine();
+const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
     const assignments = engine.assign(employees, requirement, date);
 
@@ -131,7 +137,9 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 0,
     });
 
-    const engine = new DefaultAssignmentEngine();
+    const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
     const assignments = engine.assign(employees, requirement, date);
 
@@ -152,7 +160,9 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 1,
     });
 
-    const engine = new DefaultAssignmentEngine();
+    const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
     const assignments = engine.assign(employees, requirement, date);
 
@@ -173,7 +183,9 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 1,
     });
 
-    const engine = new DefaultAssignmentEngine();
+    const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
     const assignments = engine.assign(employees, requirement, date);
 
@@ -200,7 +212,9 @@ describe("DefaultAssignmentEngine", () => {
     doubleShifts: 1,
   });
 
-  const engine = new DefaultAssignmentEngine();
+  const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
   const assignments = engine.assign(
     employees,
@@ -229,7 +243,9 @@ it("does not create double shifts when none are required", () => {
     doubleShifts: 0,
   });
 
-  const engine = new DefaultAssignmentEngine();
+  const engine = new DefaultAssignmentEngine(
+  new DefaultValidationEngine([]),
+);
 
   const assignments = engine.assign(
     employees,
