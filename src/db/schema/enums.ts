@@ -14,6 +14,14 @@ export const employmentTypeEnum = pgEnum("employment_type", [
   "casual",
 ]);
 
+// Scoped to bartenders for now (see PlanningEmployee) but kept generic
+// since experience will apply across roles once planning expands beyond bar staff.
+export const experienceLevelEnum = pgEnum("experience_level", [
+  "junior",
+  "intermediate",
+  "senior",
+]);
+
 export const shiftTypeEnum = pgEnum("shift_type", [
   "off",
   "opening",
