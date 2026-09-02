@@ -1,6 +1,6 @@
 export * from "./enums";
 export * from "./organizations";
-export * from "./resturant";
+export * from "./restaurant";
 export * from "./relations";
 export * from "./employee";
 export * from "./service-forecast";
