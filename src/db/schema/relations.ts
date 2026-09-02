@@ -1,18 +1,18 @@
 import { relations } from "drizzle-orm";
 
 import { organization } from "./organizations";
-import { restaurant } from "./restaurant";
+import { resturant } from "./resturant";
 import { serviceForecast } from "./service-forecast";
 import { employee } from "./employee";
 import { schedulingPolicy } from "./scheduling-policy";
 
 export const organizationRelations = relations(organization, ({ many }) => ({
-  restaurants: many(restaurant),
+  restaurants: many(resturant),
 }));
 
-export const restaurantRelations = relations(restaurant, ({ one, many }) => ({
+export const resturantRelations = relations(resturant, ({ one, many }) => ({
   organization: one(organization, {
-    fields: [restaurant.organizationId],
+    fields: [resturant.organizationId],
     references: [organization.id],
   }),
 
@@ -24,18 +24,18 @@ export const restaurantRelations = relations(restaurant, ({ one, many }) => ({
 }));
 
 export const employeeRelations = relations(employee, ({ one }) => ({
-  restaurant: one(restaurant, {
+  restaurant: one(resturant, {
     fields: [employee.restaurantId],
-    references: [restaurant.id],
+    references: [resturant.id],
   }),
 }));
 
 export const serviceForecastRelations = relations(
   serviceForecast,
   ({ one }) => ({
-    restaurant: one(restaurant, {
+    restaurant: one(resturant, {
       fields: [serviceForecast.restaurantId],
-      references: [restaurant.id],
+      references: [resturant.id],
     }),
   }),
 );
@@ -43,9 +43,9 @@ export const serviceForecastRelations = relations(
 export const schedulingPolicyRelations = relations(
   schedulingPolicy,
   ({ one }) => ({
-    restaurant: one(restaurant, {
+    restaurant: one(resturant, {
       fields: [schedulingPolicy.restaurantId],
-      references: [restaurant.id],
+      references: [resturant.id],
     }),
   }),
 );

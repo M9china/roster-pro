@@ -13,7 +13,7 @@ import {
   timestamps,
 } from "./helpers/columns";
 
-import { restaurant } from "./restaurant";
+import { resturant } from "./resturant";
 import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const schedulingPolicy = createTable(
@@ -21,7 +21,7 @@ export const schedulingPolicy = createTable(
   {
     id: idColumn(),
 
-    restaurantId: foreignKey("restaurant").references(() => restaurant.id, {
+    restaurantId: foreignKey("restaurant").references(() => resturant.id, {
       onDelete: "cascade",
     }),
 

@@ -16,7 +16,7 @@ import {
 
 import { demandLevelEnum, servicePeriodEnum } from "./enums";
 
-import { restaurant } from "./restaurant";
+import { resturant } from "./resturant";
 import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const serviceForecast = createTable(
@@ -24,7 +24,7 @@ export const serviceForecast = createTable(
   {
     id: idColumn(),
 
-    restaurantId: foreignKey("restaurant").references(() => restaurant.id, {
+    restaurantId: foreignKey("restaurant").references(() => resturant.id, {
       onDelete: "cascade",
     }),
 

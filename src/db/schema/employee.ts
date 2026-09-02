@@ -9,7 +9,7 @@ import {
 
 import { employeeRoleEnum, employmentTypeEnum } from "./enums";
 
-import { restaurant } from "./restaurant";
+import { resturant } from "./resturant";
 import { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 export const employee = createTable(
@@ -17,7 +17,7 @@ export const employee = createTable(
   {
     id: idColumn(),
 
-    restaurantId: foreignKey("restaurant").references(() => restaurant.id, {
+    restaurantId: foreignKey("restaurant").references(() => resturant.id, {
       onDelete: "cascade",
     }),
 
