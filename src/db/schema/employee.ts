@@ -7,7 +7,11 @@ import {
   timestamps,
 } from "./helpers/columns";
 
-import { employeeRoleEnum, employmentTypeEnum } from "./enums";
+import {
+  employeeRoleEnum,
+  employmentTypeEnum,
+  experienceLevelEnum,
+} from "./enums";
 
 import { restaurant } from "./restaurant";
 import { InferInsertModel, InferSelectModel } from "drizzle-orm";
@@ -30,6 +34,10 @@ export const employee = createTable(
     phone: text("phone"),
 
     role: employeeRoleEnum("role").notNull(),
+
+    // Nullable: only meaningful for roles the planning engine currently scores
+    // (bartenders). Backfill as other roles get planning support.
+    experienceLevel: experienceLevelEnum("experience_level"),
 
     employmentType: employmentTypeEnum("employment_type")
       .default("full_time")
