@@ -8,6 +8,7 @@ import type { PlanningResult } from "./planning-result";
 
 import type { StaffingCalculator } from "../calculators/staffing-calculator";
 import type { AssignmentEngine } from "../assigners/assignment-engine";
+import { shortfallWarnings } from "./shortfall-warnings";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(
@@ -32,7 +33,19 @@ export class DefaultPlanningEngine implements PlanningEngine {
     for (const forecast of context.forecasts) {
       const date = new Date(forecast.serviceDate);
 
-      const dayAssignments = this.generate(context.employees, forecast, date);
+      // Recomputed here rather than reusing generate()'s internal call --
+      // calculate() is a cheap, pure lookup, and this keeps generate()'s
+      // public single-day signature (and its existing tests) untouched.
+      const requirement = this.staffingCalculator.calculate(forecast);
+      const dayAssignments = this.assignmentEngine.assign(
+        context.employees,
+        requirement,
+        date,
+      );
+
+      warnings.push(
+        ...shortfallWarnings(requirement, dayAssignments, forecast.serviceDate),
+      );
 
       assignments.push(...dayAssignments);
     }

@@ -36,6 +36,13 @@
       "when": 1784022629901,
       "tag": "0004_bored_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788768845565,
+      "tag": "0005_icy_revanche",
+      "breakpoints": true
     }
   ]
 }

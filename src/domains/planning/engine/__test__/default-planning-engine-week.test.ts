@@ -297,4 +297,82 @@ describe("DefaultPlanningEngine - weekly planning", () => {
       ),
     ).toHaveLength(2);
   });
+
+  it("reports a warning when a day's assignments fall short of its requirement", () => {
+    const staffingCalculator = {
+      calculate: vi.fn(() => ({
+        totalBartenders: 3,
+        openingBartenders: 1,
+        midBartenders: 1,
+        closingBartenders: 1,
+        doubleShifts: 0,
+        earlyFinishes: 0,
+      })),
+    };
+
+    // Simulates running out of eligible employees: only fills "opening",
+    // leaving mid and closing unfilled -- exactly what AssignmentEngine
+    // does silently when the roster can't cover demand.
+    const assignmentEngine = {
+      assign: vi.fn((employees, requirement, date) => [
+        {
+          employeeId: employees[0].id,
+          date,
+          shift: "opening" as const,
+        },
+      ]),
+    };
+
+    const engine = new DefaultPlanningEngine(
+      staffingCalculator,
+      assignmentEngine,
+    );
+
+    const result = engine.generateWeek(
+      createContext({
+        forecasts: [createForecast({ serviceDate: "2026-08-24" })],
+      }),
+    );
+
+    expect(result.warnings).toEqual([
+      "2026-08-24: needed 1 mid bartender(s), only assigned 0.",
+      "2026-08-24: needed 1 closing bartender(s), only assigned 0.",
+    ]);
+  });
+
+  it("reports no warnings when every day is fully staffed", () => {
+    const staffingCalculator = {
+      calculate: vi.fn(() => ({
+        totalBartenders: 1,
+        openingBartenders: 1,
+        midBartenders: 0,
+        closingBartenders: 0,
+        doubleShifts: 0,
+        earlyFinishes: 0,
+      })),
+    };
+
+    const assignmentEngine = {
+      assign: vi.fn((employees, requirement, date) => [
+        {
+          employeeId: employees[0].id,
+          date,
+          shift: "opening" as const,
+        },
+      ]),
+    };
+
+    const engine = new DefaultPlanningEngine(
+      staffingCalculator,
+      assignmentEngine,
+    );
+
+    const result = engine.generateWeek(
+      createContext({
+        forecasts: [createForecast({ serviceDate: "2026-08-24" })],
+      }),
+    );
+
+    expect(result.warnings).toEqual([]);
+  });
 });
