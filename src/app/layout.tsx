@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "The CORE",
+  title: "THE CORE",
   description: "Building the technology behind better businesses.",
 };
 
