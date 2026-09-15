@@ -11,13 +11,9 @@
  * this script to dedupe.
  */
 import "dotenv/config";
-
 import { db } from "./client";
-import { organization } from "./schema/organizations";
-import { restaurant } from "./schema/restaurant";
-import { schedulingPolicy } from "./schema/scheduling-policy";
-import { employee } from "./schema/employee";
-import { serviceForecast } from "./schema/service-forecast";
+import { employee, organization, restaurant, schedulingPolicy, serviceForecast } from "./schema";
+
 
 const DAYS_IN_WEEK = 7;
 
