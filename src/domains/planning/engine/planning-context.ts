@@ -1,7 +1,5 @@
-import type { Employee } from "@/db/schema";
-import type { SchedulingPolicy } from "@/db/schema";
-import type { ServiceForecast } from "@/db/schema";
-import { PlanningEmployee } from "../models/employee";
+import { SchedulingPolicy, ServiceForecast } from "@/db/schema";
+import { PlanningEmployee } from "@/domains";
 
 export interface PlanningContext {
   restaurantId: string;

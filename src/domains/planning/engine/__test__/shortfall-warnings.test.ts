@@ -1,8 +1,6 @@
+import { ShiftAssignment, shortfallWarnings, StaffingRequirement } from "@/domains";
 import { describe, expect, it } from "vitest";
 
-import type { ShiftAssignment } from "../../models/assigner";
-import type { StaffingRequirement } from "../../models/staffing-requirement";
-import { shortfallWarnings } from "../shortfall-warnings";
 
 function createRequirement(
   overrides: Partial<StaffingRequirement> = {},

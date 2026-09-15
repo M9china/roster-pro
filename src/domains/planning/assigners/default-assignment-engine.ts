@@ -11,10 +11,18 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     employees: PlanningEmployee[],
     requirement: StaffingRequirement,
     date: Date,
+    existingAssignments: ShiftAssignment[] = [],
   ): ShiftAssignment[] {
     const activeEmployees = employees.filter((employee) => employee.active);
 
-    const assignments: ShiftAssignment[] = [];
+    // Seeded with the week's assignments so far (previous days) so
+    // validators -- days-off, minimum-rest -- see the full week, not just
+    // today in isolation. New assignments are appended to this same array
+    // as they're made; only the newly-added ones (from startIndex on) are
+    // returned to the caller, so DefaultPlanningEngine's accumulation
+    // logic doesn't double-count previous days.
+    const assignments: ShiftAssignment[] = [...existingAssignments];
+    const startIndex = assignments.length;
 
     this.assignShifts(
       activeEmployees,
@@ -48,7 +56,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       assignments,
     );
 
-    return assignments;
+    return assignments.slice(startIndex);
   }
 
   private assignShifts(
@@ -75,7 +83,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
         continue;
       }
 
-      if (this.hasAssignmentForShift(employee.id, shift, assignments)) {
+      if (this.hasAssignmentForShift(employee.id, shift, date, assignments)) {
         continue;
       }
 
@@ -97,8 +105,14 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
 
       assignments.push(candidate);
 
+      // Scoped to today: `assignments` can now span the whole week (it's
+      // seeded with prior days), so counting every assignment of this
+      // shift type across all dates would overcount "how many opening
+      // slots has TODAY filled" once earlier days are in the mix.
       const assignedForShift = assignments.filter(
-        (assignment) => assignment.shift === shift,
+        (assignment) =>
+          assignment.shift === shift &&
+          this.isSameCalendarDay(assignment.date, date),
       ).length;
 
       if (assignedForShift >= required) {
@@ -122,11 +136,18 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
   private hasAssignmentForShift(
     employeeId: string,
     shift: ShiftAssignment["shift"],
+    date: Date,
     assignments: ShiftAssignment[],
   ): boolean {
+    // Also date-scoped, for the same reason as assignedForShift above --
+    // without it, an employee assigned "opening" once this week would be
+    // blocked from ever getting "opening" again on any later day, since
+    // `assignments` now carries the whole week rather than just today.
     return assignments.some(
       (assignment) =>
-        assignment.employeeId === employeeId && assignment.shift === shift,
+        assignment.employeeId === employeeId &&
+        assignment.shift === shift &&
+        this.isSameCalendarDay(assignment.date, date),
     );
   }
 

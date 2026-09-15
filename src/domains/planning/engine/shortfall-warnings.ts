@@ -1,5 +1,5 @@
-import type { ShiftAssignment } from "../models/assigner";
-import type { StaffingRequirement } from "../models/staffing-requirement";
+import { ShiftAssignment, StaffingRequirement } from "@/domains";
+
 
 type Shift = "opening" | "mid" | "closing" | "double";
 

@@ -4,6 +4,9 @@ export * from './engine';
 export * from './calculators';
 export * from './constants';
 export * from './generate-schedule-for-week';
+export * from './models';
+export * from './validators';
+
 
 
 

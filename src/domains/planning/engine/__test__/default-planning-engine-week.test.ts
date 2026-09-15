@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ServiceForecast } from "@/db/schema";
-
-import type { PlanningEmployee } from "../../models/employee";
-import type { PlanningContext } from "../planning-context";
+import { PlanningContext, PlanningEmployee } from "@/domains";
 import { DefaultPlanningEngine } from "../default-planning-engine";
+
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -374,5 +373,66 @@ describe("DefaultPlanningEngine - weekly planning", () => {
     );
 
     expect(result.warnings).toEqual([]);
+  });
+
+  it("passes each day's accumulated assignments into the next day's assign() call", () => {
+    const staffingCalculator = {
+      calculate: vi.fn(() => ({
+        totalBartenders: 1,
+        openingBartenders: 1,
+        midBartenders: 0,
+        closingBartenders: 0,
+        doubleShifts: 0,
+        earlyFinishes: 0,
+      })),
+    };
+
+    const receivedExistingAssignments: unknown[][] = [];
+
+    const assignmentEngine = {
+      assign: vi.fn(
+        (
+          employees: PlanningEmployee[],
+          requirement: unknown,
+          date: Date,
+          existingAssignments: unknown[] = [],
+        ) => {
+          receivedExistingAssignments.push(existingAssignments);
+
+          return [
+            {
+              employeeId: employees[0].id,
+              date,
+              shift: "opening" as const,
+            },
+          ];
+        },
+      ),
+    };
+
+    const engine = new DefaultPlanningEngine(
+      staffingCalculator,
+      assignmentEngine,
+    );
+
+    engine.generateWeek(
+      createContext({
+        forecasts: [
+          createForecast({ serviceDate: "2026-08-24" }),
+          createForecast({ serviceDate: "2026-08-25" }),
+          createForecast({ serviceDate: "2026-08-26" }),
+        ],
+      }),
+    );
+
+    // Day 1 starts with no prior context; day 2 should see day 1's
+    // assignment; day 3 should see both. This is the actual wiring fix --
+    // without it, every day would receive an empty array here, which is
+    // exactly what let staff get scheduled every day of the week with no
+    // day off, undetected, in production.
+    expect(receivedExistingAssignments).toHaveLength(3);
+    expect(receivedExistingAssignments[0]).toHaveLength(0);
+    expect(receivedExistingAssignments[1]).toHaveLength(1);
+    expect(receivedExistingAssignments[2]).toHaveLength(2);
   });
 });
