@@ -45,34 +45,44 @@ async function seed() {
 
   const bartenders = [
     {
-      firstName: "Thabo",
-      lastName: "Mokoena",
+      firstName: "Lulama",
+      lastName: "Mkhwanazi",
       experienceLevel: "senior" as const,
     },
     {
-      firstName: "Lindiwe",
-      lastName: "Dlamini",
+      firstName: "Abigail",
+      lastName: "Ndou",
       experienceLevel: "senior" as const,
     },
     {
       firstName: "Sipho",
-      lastName: "Nkosi",
-      experienceLevel: "intermediate" as const,
+      lastName: "Ngwenya",
+      experienceLevel: "senior" as const,
     },
     {
-      firstName: "Zanele",
-      lastName: "Khumalo",
-      experienceLevel: "intermediate" as const,
+      firstName: "Donald",
+      lastName: "Ditshego",
+      experienceLevel: "senior" as const,
     },
     {
-      firstName: "Kagiso",
+      firstName: "Sibongiseni",
       lastName: "Molefe",
-      experienceLevel: "junior" as const,
+      experienceLevel: "intermediate" as const,
     },
     {
-      firstName: "Naledi",
+      firstName: "Asa",
       lastName: "Sithole",
-      experienceLevel: "junior" as const,
+      experienceLevel: "senior" as const,
+    },
+      {
+      firstName: "Musa",
+      lastName: "Mahlangu",
+      experienceLevel: "senior" as const,
+    },
+      {
+      firstName: "Bheki",
+      lastName: "Cele",
+      experienceLevel: "senior" as const,
     },
   ];
 
