@@ -1,5 +1,4 @@
-import { ShiftAssignment } from "../models/assigner";
-
+import { ShiftAssignment } from "@/domains";
 export interface PlanningResult {
   assignments: ShiftAssignment[];
 

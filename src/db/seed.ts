@@ -11,13 +11,9 @@
  * this script to dedupe.
  */
 import "dotenv/config";
-
 import { db } from "./client";
-import { organization } from "./schema/organizations";
-import { restaurant } from "./schema/restaurant";
-import { schedulingPolicy } from "./schema/scheduling-policy";
-import { employee } from "./schema/employee";
-import { serviceForecast } from "./schema/service-forecast";
+import { employee, organization, restaurant, schedulingPolicy, serviceForecast } from "./schema";
+
 
 const DAYS_IN_WEEK = 7;
 
@@ -49,34 +45,44 @@ async function seed() {
 
   const bartenders = [
     {
-      firstName: "Thabo",
-      lastName: "Mokoena",
+      firstName: "Lulama",
+      lastName: "Mkhwanazi",
       experienceLevel: "senior" as const,
     },
     {
-      firstName: "Lindiwe",
-      lastName: "Dlamini",
+      firstName: "Abigail",
+      lastName: "Ndou",
       experienceLevel: "senior" as const,
     },
     {
       firstName: "Sipho",
-      lastName: "Nkosi",
-      experienceLevel: "intermediate" as const,
+      lastName: "Ngwenya",
+      experienceLevel: "senior" as const,
     },
     {
-      firstName: "Zanele",
-      lastName: "Khumalo",
-      experienceLevel: "intermediate" as const,
+      firstName: "Donald",
+      lastName: "Ditshego",
+      experienceLevel: "senior" as const,
     },
     {
-      firstName: "Kagiso",
+      firstName: "Sibongiseni",
       lastName: "Molefe",
-      experienceLevel: "junior" as const,
+      experienceLevel: "intermediate" as const,
     },
     {
-      firstName: "Naledi",
+      firstName: "Asa",
       lastName: "Sithole",
-      experienceLevel: "junior" as const,
+      experienceLevel: "senior" as const,
+    },
+      {
+      firstName: "Musa",
+      lastName: "Mahlangu",
+      experienceLevel: "senior" as const,
+    },
+      {
+      firstName: "Bheki",
+      lastName: "Cele",
+      experienceLevel: "senior" as const,
     },
   ];
 

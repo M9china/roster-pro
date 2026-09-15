@@ -8,5 +8,6 @@ export interface AssignmentEngine {
     employees: PlanningEmployee[],
     requirement: StaffingRequirement,
     date: Date,
+    existingAssignments?: ShiftAssignment[],
   ): ShiftAssignment[];
 }

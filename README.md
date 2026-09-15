@@ -1,6 +1,6 @@
 # Roster Pro
 
-> A rule-driven workforce scheduling engine for restaurants, designed to generate fair, demand-aware bartender rosters from service forecasts and restaurant staffing policies.
+> A rule-driven workforce scheduling engine for restaurants, designed to generate fair, demand-aware restaurant rosters from service forecasts and restaurant staffing policies.
 
 ---
 

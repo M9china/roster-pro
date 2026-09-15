@@ -1,14 +1,6 @@
 import type { ServiceForecast } from "@/db/schema";
-
-import type { PlanningEmployee } from "../models/employee";
-import type { ShiftAssignment } from "../models/assigner";
-import type { PlanningEngine } from "./planning-engine";
-import type { PlanningContext } from "./planning-context";
-import type { PlanningResult } from "./planning-result";
-
-import type { StaffingCalculator } from "../calculators/staffing-calculator";
-import type { AssignmentEngine } from "../assigners/assignment-engine";
 import { shortfallWarnings } from "./shortfall-warnings";
+import { AssignmentEngine, PlanningContext, PlanningEmployee, PlanningEngine, PlanningResult, ShiftAssignment, StaffingCalculator } from "@/domains";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(
@@ -41,6 +33,7 @@ export class DefaultPlanningEngine implements PlanningEngine {
         context.employees,
         requirement,
         date,
+        assignments,
       );
 
       warnings.push(
