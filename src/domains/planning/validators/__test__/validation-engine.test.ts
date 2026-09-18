@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { PlanningEmployee } from "../../models/employee";
 import type { ShiftAssignment } from "../../models/assigner";
 import type { AssignmentValidator } from "../validator";
-import { DefaultValidationEngine, ValidationEngine } from "../validation-engine";
+import type { SchedulingPolicy } from "@/db/schema";
+import {
+  DefaultValidationEngine,
+  ValidationEngine,
+} from "../validation-engine";
 
 const employee: PlanningEmployee = {
   id: "employee-1",
@@ -21,6 +25,23 @@ const shift: ShiftAssignment = {
   shift: "opening",
 };
 
+const policy: SchedulingPolicy = {
+  id: "policy-1",
+  restaurantId: "restaurant-1",
+  defaultShiftHours: 8,
+  minimumRestHours: 11,
+  daysOffPerWeek: 2,
+  allowDoubleShift: true,
+  allowEarlyFinish: true,
+  openingShiftStart: "09:00:00",
+  openingShiftEnd: "17:00:00",
+  closingShiftStart: "15:00:00",
+  closingShiftEnd: "02:00:00",
+  version: 1,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
 describe("ValidationEngine", () => {
   it("accepts an assignment when all validators pass", () => {
     const validatorOne: AssignmentValidator = {
@@ -33,7 +54,7 @@ describe("ValidationEngine", () => {
 
     const engine = new DefaultValidationEngine([validatorOne, validatorTwo]);
 
-    const result = engine.validate(employee, shift, []);
+    const result = engine.validate(employee, shift, [], policy);
 
     expect(result).toBe(true);
   });
@@ -47,9 +68,12 @@ describe("ValidationEngine", () => {
       validate: vi.fn().mockReturnValue(false),
     };
 
-    const engine = new DefaultValidationEngine([passingValidator, failingValidator]);
+    const engine = new DefaultValidationEngine([
+      passingValidator,
+      failingValidator,
+    ]);
 
-    const result = engine.validate(employee, shift, []);
+    const result = engine.validate(employee, shift, [], policy);
 
     expect(result).toBe(false);
   });
@@ -63,9 +87,12 @@ describe("ValidationEngine", () => {
       validate: vi.fn().mockReturnValue(true),
     };
 
-    const engine = new DefaultValidationEngine([failingValidator, secondValidator]);
+    const engine = new DefaultValidationEngine([
+      failingValidator,
+      secondValidator,
+    ]);
 
-    const result = engine.validate(employee, shift, []);
+    const result = engine.validate(employee, shift, [], policy);
 
     expect(result).toBe(false);
   });
@@ -85,19 +112,20 @@ describe("ValidationEngine", () => {
 
     const engine = new DefaultValidationEngine([validator]);
 
-    engine.validate(employee, shift, existingAssignments);
+    engine.validate(employee, shift, existingAssignments, policy);
 
     expect(validator.validate).toHaveBeenCalledWith(
       employee,
       shift,
       existingAssignments,
+      policy,
     );
   });
 
   it("allows validation when there are no validators", () => {
     const engine = new DefaultValidationEngine([]);
 
-    const result = engine.validate(employee, shift, []);
+    const result = engine.validate(employee, shift, [], policy);
 
     expect(result).toBe(true);
   });
