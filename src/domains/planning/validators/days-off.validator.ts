@@ -1,54 +1,45 @@
+import type { SchedulingPolicy } from "@/db/schema";
+
 import type { PlanningEmployee } from "../models/employee";
 import type { ShiftAssignment } from "../models/assigner";
 import type { AssignmentValidator } from "./validator";
-import { isSameCalendarDay } from "../constants/date-utils";
+import { addDays, toISODateString } from "../constants/date-utils";
+
+const DAYS_IN_WEEK = 7;
 
 export class DaysOffValidator implements AssignmentValidator {
   validate(
     employee: PlanningEmployee,
     shift: ShiftAssignment,
     assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
   ): boolean {
     const weekStart = this.getWeekStart(shift.date);
-
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
+    const weekEnd = addDays(weekStart, DAYS_IN_WEEK - 1);
 
     const employeeAssignments = assignments.filter(
       (assignment) =>
         assignment.employeeId === employee.id &&
-        assignment.date >= weekStart &&
-        assignment.date <= weekEnd,
+        assignment.date.getTime() >= weekStart.getTime() &&
+        assignment.date.getTime() <= weekEnd.getTime(),
     );
 
     const workedDays = new Set(
-      employeeAssignments.map((assignment) => assignment.date.toDateString()),
+      employeeAssignments.map((assignment) => toISODateString(assignment.date)),
     );
 
-    if (!workedDays.has(shift.date.toDateString())) {
-      workedDays.add(shift.date.toDateString());
-    }
+    workedDays.add(toISODateString(shift.date));
 
-    const daysWorked = workedDays.size;
+    const maxWorkingDays = DAYS_IN_WEEK - policy.daysOffPerWeek;
 
-    return daysWorked <= 5;
+    return workedDays.size <= maxWorkingDays;
   }
 
   private getWeekStart(date: Date): Date {
-    const weekStart = new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-    );
-
-    const day = weekStart.getDay();
-
+    // UTC day-of-week: 0 = Sunday, 1 = Monday, ... 6 = Saturday.
+    const day = date.getUTCDay();
     const daysFromMonday = day === 0 ? 6 : day - 1;
 
-    weekStart.setDate(weekStart.getDate() - daysFromMonday);
-
-    weekStart.setHours(0, 0, 0, 0);
-
-    return weekStart;
+    return addDays(date, -daysFromMonday);
   }
 }
