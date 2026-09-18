@@ -1,4 +1,5 @@
 import {
+  boolean,
   date,
   index,
   integer,
@@ -77,6 +78,12 @@ export const shiftAssignment = createTable(
     date: date("date").notNull(),
 
     shiftType: shiftTypeEnum("shift_type").notNull(),
+
+    // True when this assignment ends earlier than the shift type's normal
+    // duration -- the mechanism for bringing an employee who's worked more
+    // hours than the rest of the team (e.g. a double shift) back toward
+    // parity, rather than a general scheduling preference.
+    isEarlyFinish: boolean("is_early_finish").default(false).notNull(),
 
     ...timestamps(),
   },
