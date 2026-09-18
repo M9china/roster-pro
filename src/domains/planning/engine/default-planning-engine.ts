@@ -1,6 +1,14 @@
-import type { ServiceForecast } from "@/db/schema";
+import type { ServiceForecast, SchedulingPolicy } from "@/db/schema";
 import { shortfallWarnings } from "./shortfall-warnings";
-import { AssignmentEngine, PlanningContext, PlanningEmployee, PlanningEngine, PlanningResult, ShiftAssignment, StaffingCalculator } from "@/domains";
+import {
+  AssignmentEngine,
+  PlanningContext,
+  PlanningEmployee,
+  PlanningEngine,
+  PlanningResult,
+  ShiftAssignment,
+  StaffingCalculator,
+} from "@/domains";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(
@@ -12,10 +20,11 @@ export class DefaultPlanningEngine implements PlanningEngine {
     employees: PlanningEmployee[],
     forecast: ServiceForecast,
     date: Date,
+    policy: SchedulingPolicy,
   ): ShiftAssignment[] {
     const requirement = this.staffingCalculator.calculate(forecast);
 
-    return this.assignmentEngine.assign(employees, requirement, date);
+    return this.assignmentEngine.assign(employees, requirement, date, policy);
   }
 
   generateWeek(context: PlanningContext): PlanningResult {
@@ -33,6 +42,7 @@ export class DefaultPlanningEngine implements PlanningEngine {
         context.employees,
         requirement,
         date,
+        context.policy,
         assignments,
       );
 

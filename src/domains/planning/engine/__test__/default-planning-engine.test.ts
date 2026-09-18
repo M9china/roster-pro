@@ -9,6 +9,7 @@ import type { StaffingRequirement } from "../../models/staffing-requirement";
 import type { StaffingCalculator } from "../../calculators/staffing-calculator";
 import type { AssignmentEngine } from "../../assigners/assignment-engine";
 
+import type { SchedulingPolicy } from "@/db/schema";
 import { DefaultPlanningEngine } from "../default-planning-engine";
 
 function createEmployee(
@@ -37,6 +38,28 @@ function createForecast(
     bookingCount: 50,
     ...overrides,
   } as ServiceForecast;
+}
+
+function createPolicy(
+  overrides: Partial<SchedulingPolicy> = {},
+): SchedulingPolicy {
+  return {
+    id: "policy-1",
+    restaurantId: "restaurant-1",
+    defaultShiftHours: 8,
+    minimumRestHours: 11,
+    daysOffPerWeek: 2,
+    allowDoubleShift: true,
+    allowEarlyFinish: true,
+    openingShiftStart: "09:00:00",
+    openingShiftEnd: "17:00:00",
+    closingShiftStart: "15:00:00",
+    closingShiftEnd: "02:00:00",
+    version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
 }
 
 function createRequirement(): StaffingRequirement {
@@ -91,7 +114,7 @@ describe("DefaultPlanningEngine", () => {
     const forecast = createForecast();
     const date = new Date("2026-08-24");
 
-    engine.generate(employees, forecast, date);
+    engine.generate(employees, forecast, date, createPolicy());
 
     expect(staffingCalculator.calculate).toHaveBeenCalledWith(forecast);
   });
@@ -116,12 +139,13 @@ describe("DefaultPlanningEngine", () => {
     const forecast = createForecast();
     const date = new Date("2026-08-24");
 
-    engine.generate(employees, forecast, date);
+    engine.generate(employees, forecast, date, createPolicy());
 
     expect(assignmentEngine.assign).toHaveBeenCalledWith(
       employees,
       requirement,
       date,
+      createPolicy(),
     );
   });
 
@@ -143,7 +167,12 @@ describe("DefaultPlanningEngine", () => {
       assignmentEngine,
     );
 
-    const result = engine.generate([createEmployee()], createForecast(), date);
+    const result = engine.generate(
+      [createEmployee()],
+      createForecast(),
+      date,
+      createPolicy(),
+    );
 
     expect(result).toEqual(assignments);
   });
@@ -176,12 +205,13 @@ describe("DefaultPlanningEngine", () => {
     const forecast = createForecast();
     const date = new Date("2026-08-24");
 
-    engine.generate(employees, forecast, date);
+    engine.generate(employees, forecast, date, createPolicy());
 
     expect(assignmentEngine.assign).toHaveBeenCalledWith(
       employees,
       requirement,
       date,
+      createPolicy(),
     );
   });
 
@@ -205,6 +235,7 @@ describe("DefaultPlanningEngine", () => {
       [createEmployee()],
       createForecast(),
       new Date("2026-08-24"),
+      createPolicy(),
     );
 
     expect(staffingCalculator.calculate).toHaveBeenCalledTimes(1);
