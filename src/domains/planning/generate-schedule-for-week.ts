@@ -13,12 +13,13 @@ import { DefaultPlanningEngine } from "./engine/default-planning-engine";
 import { DefaultStaffingCalculator } from "./calculators/default-staffing-calculator";
 import { DefaultAssignmentEngine } from "./assigners/default-assignment-engine";
 import { DefaultValidationEngine } from "./validators/validation-engine";
-import { MinimumRestValidator } from "./validators/minimum-rest.validator";
 import { DaysOffValidator } from "./validators/days-off.validator";
 import { DoubleShiftValidator } from "./validators/double-shift.validator";
-import { ShiftCompatibilityValidator } from "./validators/shift-compatibility-validator";
+import { DefaultFairnessEngine } from "./fairness/default-fairness-engine";
+import { defaultFairnessFactors } from "./fairness/fairness-config";
 import { toPlanningEmployee, type PlanningEmployee } from "./models/employee";
 import { addDays, toISODateString } from "./constants/date-utils";
+import { MinimumRestValidator } from "./validators";
 
 const DAYS_IN_WEEK = 7;
 
@@ -91,6 +92,7 @@ export async function generateScheduleForWeek(input: {
       employeeId: assignment.employeeId,
       date: toISODateString(assignment.date),
       shiftType: assignment.shift,
+      isEarlyFinish: assignment.isEarlyFinish ?? false,
     }),
   );
 
@@ -163,8 +165,11 @@ function createDefaultPlanningEngine(): DefaultPlanningEngine {
         new MinimumRestValidator(),
         new DaysOffValidator(),
         new DoubleShiftValidator(),
-        new ShiftCompatibilityValidator(),
       ]),
+      // Reusing the codebase's own already-defined default weighting
+      // (all 5 factors, equal weight) rather than inventing a new one --
+      // this was built and tested but never actually wired in until now.
+      new DefaultFairnessEngine(defaultFairnessFactors),
     ),
   );
 }
