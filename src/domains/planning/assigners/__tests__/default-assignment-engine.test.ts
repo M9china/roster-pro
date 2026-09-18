@@ -4,6 +4,9 @@ import type { PlanningEmployee } from "../../models/employee";
 import type { StaffingRequirement } from "../../models/staffing-requirement";
 import { DefaultAssignmentEngine } from "../default-assignment-engine";
 import { DefaultValidationEngine } from "../../validators";
+import { DefaultFairnessEngine } from "../../fairness/default-fairness-engine";
+import { ShiftCountFactor } from "../../fairness/factors/shift-count-factor";
+import type { SchedulingPolicy } from "@/db/schema";
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -34,6 +37,28 @@ function createRequirement(
   };
 }
 
+function createPolicy(
+  overrides: Partial<SchedulingPolicy> = {},
+): SchedulingPolicy {
+  return {
+    id: "policy-1",
+    restaurantId: "restaurant-1",
+    defaultShiftHours: 8,
+    minimumRestHours: 11,
+    daysOffPerWeek: 2,
+    allowDoubleShift: true,
+    allowEarlyFinish: true,
+    openingShiftStart: "09:00:00",
+    openingShiftEnd: "17:00:00",
+    closingShiftStart: "15:00:00",
+    closingShiftEnd: "02:00:00",
+    version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
 describe("DefaultAssignmentEngine", () => {
   const date = new Date("2026-08-28");
 
@@ -51,9 +76,17 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 0,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(assignments).toHaveLength(1);
     expect(assignments[0]).toMatchObject({
@@ -76,9 +109,17 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 0,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(assignments).toHaveLength(1);
     expect(assignments[0]).toMatchObject({
@@ -101,9 +142,17 @@ describe("DefaultAssignmentEngine", () => {
       midBartenders: 0,
       closingBartenders: 2,
     });
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(assignments).toHaveLength(2);
 
@@ -131,9 +180,17 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 0,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(assignments).toHaveLength(1);
     expect(assignments[0].employeeId).toBe("active");
@@ -152,9 +209,17 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 1,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(assignments).toHaveLength(2);
   });
@@ -173,9 +238,17 @@ describe("DefaultAssignmentEngine", () => {
       closingBartenders: 1,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(assignments).toHaveLength(3);
 
@@ -200,9 +273,17 @@ describe("DefaultAssignmentEngine", () => {
       doubleShifts: 1,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     const doubleShifts = assignments.filter(
       (assignment) => assignment.shift === "double",
@@ -225,9 +306,17 @@ describe("DefaultAssignmentEngine", () => {
       doubleShifts: 0,
     });
 
-    const engine = new DefaultAssignmentEngine(new DefaultValidationEngine([]));
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([]),
+      new DefaultFairnessEngine([]),
+    );
 
-    const assignments = engine.assign(employees, requirement, date);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy(),
+    );
 
     expect(
       assignments.some((assignment) => assignment.shift === "double"),
@@ -251,11 +340,16 @@ describe("DefaultAssignmentEngine", () => {
 
       const engine = new DefaultAssignmentEngine(
         new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
       );
 
-      const assignments = engine.assign(employees, requirement, date, [
-        priorMonday,
-      ]);
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        date,
+        createPolicy(),
+        [priorMonday],
+      );
 
       // Only today's new assignment, never the Monday one passed in -- the
       // caller (DefaultPlanningEngine) accumulates across days itself, so
@@ -299,9 +393,16 @@ describe("DefaultAssignmentEngine", () => {
 
       const engine = new DefaultAssignmentEngine(
         new DefaultValidationEngine([spyValidator]),
+        new DefaultFairnessEngine([]),
       );
 
-      engine.assign(employees, requirement, date, priorAssignments);
+      engine.assign(
+        employees,
+        requirement,
+        date,
+        createPolicy(),
+        priorAssignments,
+      );
 
       // The validator should have seen both prior-week assignments already
       // in the array (length 2) before today's candidate is added -- this is
@@ -332,12 +433,14 @@ describe("DefaultAssignmentEngine", () => {
 
       const engine = new DefaultAssignmentEngine(
         new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
       );
 
       const assignments = engine.assign(
         employees,
         requirement,
         date,
+        createPolicy(),
         priorAssignments,
       );
 
@@ -366,12 +469,14 @@ describe("DefaultAssignmentEngine", () => {
 
       const engine = new DefaultAssignmentEngine(
         new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
       );
 
       const assignments = engine.assign(
         employees,
         requirement,
         date,
+        createPolicy(),
         priorAssignments,
       );
 
@@ -400,6 +505,7 @@ describe("DefaultAssignmentEngine", () => {
 
       const engine = new DefaultAssignmentEngine(
         new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
       );
 
       // employee-1 is the only employee, and today's "opening" slot takes
@@ -409,11 +515,99 @@ describe("DefaultAssignmentEngine", () => {
         employees,
         requirement,
         date,
+        createPolicy(),
         priorAssignments,
       );
 
       expect(assignments).toHaveLength(1);
       expect(assignments[0].shift).toBe("opening");
+    });
+  });
+
+  describe("fairness-based selection", () => {
+    it("picks the employee with fewer prior shifts over one with more", () => {
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+      ];
+
+      const requirement = createRequirement({
+        openingBartenders: 1,
+        midBartenders: 0,
+        closingBartenders: 0,
+      });
+
+      // employee-1 already has two shifts this week; employee-2 has none.
+      // With real fairness scoring, employee-2 should get today's slot --
+      // with the old "first eligible in array order" behavior, employee-1
+      // would have won every time regardless of prior load.
+      const priorAssignments = [
+        {
+          employeeId: "employee-1",
+          date: new Date("2026-08-24"),
+          shift: "opening" as const,
+        },
+        {
+          employeeId: "employee-1",
+          date: new Date("2026-08-25"),
+          shift: "mid" as const,
+        },
+      ];
+
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([
+          { factor: new ShiftCountFactor(), weight: 1 },
+        ]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        date,
+        createPolicy(),
+        priorAssignments,
+      );
+
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0].employeeId).toBe("employee-2");
+    });
+
+    it("re-evaluates fairness after each pick within the same day, rather than using a stale ranking", () => {
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+        createEmployee({ id: "employee-3" }),
+      ];
+
+      const requirement = createRequirement({
+        openingBartenders: 1,
+        midBartenders: 1,
+        closingBartenders: 0,
+      });
+
+      // All three start equally fair. Once employee-1 (lowest id, wins the
+      // opening slot on a tie) is picked, they're no longer eligible for
+      // "mid" (already working today) -- the second slot should go to
+      // whichever of employee-2/employee-3 wins the tie-break, not another
+      // evaluation that still thinks employee-1 is available.
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([
+          { factor: new ShiftCountFactor(), weight: 1 },
+        ]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        date,
+        createPolicy(),
+      );
+
+      expect(assignments).toHaveLength(2);
+      const assignedIds = assignments.map((a) => a.employeeId).sort();
+      expect(assignedIds).toEqual(["employee-1", "employee-2"]);
     });
   });
 });
