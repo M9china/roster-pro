@@ -4,7 +4,6 @@ import type { ServiceForecast } from "@/db/schema";
 import { PlanningContext, PlanningEmployee } from "@/domains";
 import { DefaultPlanningEngine } from "../default-planning-engine";
 
-
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
 ): PlanningEmployee {
@@ -395,9 +394,10 @@ describe("DefaultPlanningEngine - weekly planning", () => {
           employees: PlanningEmployee[],
           requirement: unknown,
           date: Date,
+          policy: unknown,
           existingAssignments: unknown[] = [],
         ) => {
-          receivedExistingAssignments.push(existingAssignments);
+          receivedExistingAssignments.push([...existingAssignments]);
 
           return [
             {
