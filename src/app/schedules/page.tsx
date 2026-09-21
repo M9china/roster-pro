@@ -315,6 +315,7 @@ export default function SchedulesPage() {
                         assignment && assignment.shiftType !== "off"
                           ? SHIFT_STYLES[assignment.shiftType]
                           : null;
+                      const isFormallyOff = assignment?.shiftType === "off";
 
                       return (
                         <td key={date} className="px-3 py-3">
@@ -328,6 +329,15 @@ export default function SchedulesPage() {
                               }}
                             >
                               {style.label}
+                            </span>
+                          ) : isFormallyOff ? (
+                            <span
+                              className="text-sm text-[#6B8E7A]"
+                              style={{
+                                fontFamily: "'IBM Plex Mono', monospace",
+                              }}
+                            >
+                              Off
                             </span>
                           ) : (
                             <span className="text-sm text-[#4A4436]">—</span>
