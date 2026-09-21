@@ -119,6 +119,7 @@ function mostRecentShiftEnd(
     .filter(
       (assignment) =>
         assignment.employeeId === employeeId &&
+        assignment.shift !== "off" &&
         assignment.date.getTime() < date.getTime(),
     )
     .sort((a, b) => b.date.getTime() - a.date.getTime())[0];

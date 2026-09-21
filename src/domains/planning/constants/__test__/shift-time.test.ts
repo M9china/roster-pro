@@ -221,6 +221,33 @@ describe("computeShiftWindow", () => {
 
     expect(window.start.toISOString()).toBe("2026-08-28T17:00:00.000Z");
   });
+
+  it("skips a same-day-off record when looking for the most recent prior shift", () => {
+    // An explicit day-off allocation has no real end time to rest from --
+    // the most recent *actual* shift (opening on the 26th, ending 17:00)
+    // should be used instead of trying to compute a window for the "off"
+    // record on the 27th. Mid on the 28th anchors off that: 17:00 + 11h
+    // (minimumRestHours) = 04:00 on the 27th, running 8h to 12:00.
+    const priorAssignments: ShiftAssignment[] = [
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-26"),
+        shift: "opening",
+      },
+      { employeeId: "employee-1", date: new Date("2026-08-27"), shift: "off" },
+    ];
+
+    const window = computeShiftWindow(
+      "mid",
+      new Date("2026-08-28"),
+      createPolicy(),
+      "employee-1",
+      priorAssignments,
+    );
+
+    expect(window.start.toISOString()).toBe("2026-08-27T04:00:00.000Z");
+    expect(window.end.toISOString()).toBe("2026-08-27T12:00:00.000Z");
+  });
 });
 
 describe("hoursBetween", () => {
