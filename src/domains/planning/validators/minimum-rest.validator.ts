@@ -24,6 +24,7 @@ export class MinimumRestValidator implements AssignmentValidator {
       .filter(
         (assignment) =>
           assignment.employeeId === employee.id &&
+          assignment.shift !== "off" &&
           assignment.date.getTime() < shift.date.getTime(),
       )
       .sort((a, b) => b.date.getTime() - a.date.getTime())[0];

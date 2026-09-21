@@ -52,7 +52,12 @@ function createContext(
       restaurantId: "restaurant-1",
       defaultShiftHours: 8,
       minimumRestHours: 11,
-      daysOffPerWeek: 2,
+      // Zero by default so existing tests that don't care about day-off
+      // behavior aren't affected by day-off records getting seeded into
+      // result.assignments. Tests that specifically exercise day-off
+      // seeding override this explicitly -- see the "day-off allocation"
+      // describe block below.
+      daysOffPerWeek: 0,
       allowDoubleShift: true,
       allowEarlyFinish: true,
       openingShiftStart: "09:00:00",
@@ -417,6 +422,27 @@ describe("DefaultPlanningEngine - weekly planning", () => {
 
     engine.generateWeek(
       createContext({
+        // Neutralize day-off allocation here so this test stays focused
+        // on cross-day assignment accumulation specifically -- day-off
+        // seeding behavior has its own dedicated test file
+        // (day-off-allocator.test.ts) and its own integration coverage
+        // below.
+        policy: {
+          id: "policy-1",
+          restaurantId: "restaurant-1",
+          defaultShiftHours: 8,
+          minimumRestHours: 11,
+          daysOffPerWeek: 0,
+          allowDoubleShift: true,
+          allowEarlyFinish: true,
+          openingShiftStart: "09:00:00",
+          openingShiftEnd: "17:00:00",
+          closingShiftStart: "15:00:00",
+          closingShiftEnd: "02:00:00",
+          version: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
         forecasts: [
           createForecast({ serviceDate: "2026-08-24" }),
           createForecast({ serviceDate: "2026-08-25" }),
@@ -434,5 +460,123 @@ describe("DefaultPlanningEngine - weekly planning", () => {
     expect(receivedExistingAssignments[0]).toHaveLength(0);
     expect(receivedExistingAssignments[1]).toHaveLength(1);
     expect(receivedExistingAssignments[2]).toHaveLength(2);
+  });
+
+  describe("day-off allocation", () => {
+    it("includes pre-allocated day-off records in the final result", () => {
+      const staffingCalculator = {
+        calculate: vi.fn(() => ({
+          totalBartenders: 1,
+          openingBartenders: 1,
+          midBartenders: 0,
+          closingBartenders: 0,
+          doubleShifts: 0,
+          earlyFinishes: 0,
+        })),
+      };
+
+      const assignmentEngine = {
+        assign: vi.fn((employees, requirement, date) => [
+          { employeeId: employees[0].id, date, shift: "opening" as const },
+        ]),
+      };
+
+      const engine = new DefaultPlanningEngine(
+        staffingCalculator,
+        assignmentEngine,
+      );
+
+      const result = engine.generateWeek(
+        createContext({
+          policy: {
+            id: "policy-1",
+            restaurantId: "restaurant-1",
+            defaultShiftHours: 8,
+            minimumRestHours: 11,
+            daysOffPerWeek: 2,
+            allowDoubleShift: true,
+            allowEarlyFinish: true,
+            openingShiftStart: "09:00:00",
+            openingShiftEnd: "17:00:00",
+            closingShiftStart: "15:00:00",
+            closingShiftEnd: "02:00:00",
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          forecasts: [createForecast({ serviceDate: "2026-08-26" })],
+        }),
+      );
+
+      const offRecords = result.assignments.filter((a) => a.shift === "off");
+
+      expect(offRecords).toHaveLength(2);
+      expect(offRecords.every((a) => a.employeeId === "employee-1")).toBe(true);
+    });
+
+    it("passes day-off allocations to assign() from the very first day, not just accumulated from real shifts", () => {
+      const staffingCalculator = {
+        calculate: vi.fn(() => ({
+          totalBartenders: 1,
+          openingBartenders: 1,
+          midBartenders: 0,
+          closingBartenders: 0,
+          doubleShifts: 0,
+          earlyFinishes: 0,
+        })),
+      };
+
+      const receivedExistingAssignments: unknown[][] = [];
+
+      const assignmentEngine = {
+        assign: vi.fn(
+          (
+            employees: PlanningEmployee[],
+            requirement: unknown,
+            date: Date,
+            policy: unknown,
+            existingAssignments: unknown[] = [],
+          ) => {
+            receivedExistingAssignments.push([...existingAssignments]);
+
+            return [
+              { employeeId: employees[0].id, date, shift: "opening" as const },
+            ];
+          },
+        ),
+      };
+
+      const engine = new DefaultPlanningEngine(
+        staffingCalculator,
+        assignmentEngine,
+      );
+
+      engine.generateWeek(
+        createContext({
+          policy: {
+            id: "policy-1",
+            restaurantId: "restaurant-1",
+            defaultShiftHours: 8,
+            minimumRestHours: 11,
+            daysOffPerWeek: 2,
+            allowDoubleShift: true,
+            allowEarlyFinish: true,
+            openingShiftStart: "09:00:00",
+            openingShiftEnd: "17:00:00",
+            closingShiftStart: "15:00:00",
+            closingShiftEnd: "02:00:00",
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          forecasts: [createForecast({ serviceDate: "2026-08-26" })],
+        }),
+      );
+
+      // Even on the first (and only) forecast day, assign() should already
+      // see the week's 2 pre-allocated day-off records -- they're decided
+      // up front, not accumulated only as real shifts get made.
+      expect(receivedExistingAssignments[0]).toHaveLength(2);
+    });
   });
 });

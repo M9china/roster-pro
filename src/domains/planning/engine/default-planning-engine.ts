@@ -1,5 +1,6 @@
 import type { ServiceForecast, SchedulingPolicy } from "@/db/schema";
 import { shortfallWarnings } from "./shortfall-warnings";
+import { allocateDaysOff } from "../days-off-allocator";
 import {
   AssignmentEngine,
   PlanningContext,
@@ -28,7 +29,18 @@ export class DefaultPlanningEngine implements PlanningEngine {
   }
 
   generateWeek(context: PlanningContext): PlanningResult {
-    const assignments: ShiftAssignment[] = [];
+    // Days off are decided before any shift is filled, not detected and
+    // patched up afterward -- see day-off-allocator.ts. Seeded into
+    // `assignments` up front so the normal demand-driven fill below
+    // already treats these employees as unavailable on their off days,
+    // with no special-casing needed in the fill loop itself.
+    const assignments: ShiftAssignment[] = allocateDaysOff(
+      context.employees,
+      context.weekStart,
+      context.policy,
+      context.forecasts,
+    );
+
     const warnings: string[] = [];
 
     for (const forecast of context.forecasts) {
