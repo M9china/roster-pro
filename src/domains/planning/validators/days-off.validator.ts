@@ -20,6 +20,7 @@ export class DaysOffValidator implements AssignmentValidator {
     const employeeAssignments = assignments.filter(
       (assignment) =>
         assignment.employeeId === employee.id &&
+        assignment.shift !== "off" &&
         assignment.date.getTime() >= weekStart.getTime() &&
         assignment.date.getTime() <= weekEnd.getTime(),
     );

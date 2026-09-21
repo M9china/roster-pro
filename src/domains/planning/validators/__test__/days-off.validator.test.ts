@@ -155,4 +155,25 @@ describe("DaysOffValidator", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not count explicit 'off' records as worked days", () => {
+    // Five real working days (Mon-Fri) plus two formal "off" allocations
+    // that fall on Sat/Sun of the *same* week -- if "off" records were
+    // (wrongly) counted as worked days, this would report 7 worked days
+    // in the week and reject a policy that only allows 5.
+    const assignments = [
+      assignment("2026-08-24"),
+      assignment("2026-08-25"),
+      assignment("2026-08-26"),
+      assignment("2026-08-27"),
+      assignment("2026-08-29", "off"),
+      assignment("2026-08-30", "off"),
+    ];
+
+    const proposedShift = assignment("2026-08-28");
+
+    expect(
+      validator.validate(employee, proposedShift, assignments, createPolicy()),
+    ).toBe(true);
+  });
 });
