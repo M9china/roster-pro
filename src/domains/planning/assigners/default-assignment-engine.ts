@@ -7,6 +7,15 @@ import type { FairnessEngine } from "../fairness/fairness-engine";
 import type { FairnessAssignment } from "../fairness/fairness-assignment";
 import type { SchedulingPolicy } from "@/db/schema";
 import { isSameCalendarDay } from "../constants/date-utils";
+import { hoursWorkedSoFar } from "../constants/shift-time";
+
+/** A mutable, shared counter threaded through the closing and double
+ * shift-filling passes for one day, so the day's early-finish budget
+ * (requirement.earlyFinishes) is spent across both passes, not reset
+ * between them. */
+interface EarlyFinishBudget {
+  remaining: number;
+}
 
 export class DefaultAssignmentEngine implements AssignmentEngine {
   constructor(
@@ -51,6 +60,13 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       policy,
     );
 
+    // Early finish only applies to closing/double (see assignShifts) --
+    // shared across both passes so the day's budget (requirement.
+    // earlyFinishes) is spent once across the day, not once per shift type.
+    const earlyFinishBudget: EarlyFinishBudget = {
+      remaining: policy.allowEarlyFinish ? requirement.earlyFinishes : 0,
+    };
+
     this.assignShifts(
       activeEmployees,
       requirement.closingBartenders,
@@ -58,6 +74,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       date,
       assignments,
       policy,
+      earlyFinishBudget,
     );
 
     this.assignShifts(
@@ -67,6 +84,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       date,
       assignments,
       policy,
+      earlyFinishBudget,
     );
 
     return assignments.slice(startIndex);
@@ -89,6 +107,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     date: Date,
     assignments: ShiftAssignment[],
     policy: SchedulingPolicy,
+    earlyFinishBudget?: EarlyFinishBudget,
   ): void {
     if (required <= 0) {
       return;
@@ -107,8 +126,30 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       }
 
       const winner = this.pickFairest(eligible, assignments, date);
+      const assignment: ShiftAssignment = {
+        employeeId: winner.id,
+        date,
+        shift,
+      };
 
-      assignments.push({ employeeId: winner.id, date, shift });
+      // Early finish: shift-count-based fairness doesn't distinguish a
+      // long double from a short opening, so someone can look "fair" by
+      // count while genuinely running ahead on hours (exactly the
+      // scenario this is meant to catch). Only closing/double are
+      // eligible -- those are the shift types with a real, flexible end
+      // time worth cutting short; opening/mid already end at fixed,
+      // reasonable times.
+      if (
+        earlyFinishBudget &&
+        earlyFinishBudget.remaining > 0 &&
+        (shift === "closing" || shift === "double") &&
+        this.isAboveTeamAverage(winner.id, employees, assignments, policy)
+      ) {
+        assignment.isEarlyFinish = true;
+        earlyFinishBudget.remaining -= 1;
+      }
+
+      assignments.push(assignment);
     }
   }
 
@@ -165,6 +206,32 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
 
       return isHigherScore || isTieBrokenLower ? current : best;
     }).employee;
+  }
+
+  /**
+   * True when this employee's hours-so-far (before this new assignment)
+   * already exceed the active team's average. Compared before, not after,
+   * adding the new shift -- this asks "are they already ahead", not
+   * "would this specific shift put them ahead".
+   */
+  private isAboveTeamAverage(
+    employeeId: string,
+    employees: PlanningEmployee[],
+    assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
+  ): boolean {
+    if (employees.length === 0) {
+      return false;
+    }
+
+    const hoursByEmployee = employees.map((employee) =>
+      hoursWorkedSoFar(employee.id, assignments, policy),
+    );
+    const average =
+      hoursByEmployee.reduce((total, hours) => total + hours, 0) /
+      hoursByEmployee.length;
+
+    return hoursWorkedSoFar(employeeId, assignments, policy) > average;
   }
 
   private countForShiftToday(

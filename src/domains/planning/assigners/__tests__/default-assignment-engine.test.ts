@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PlanningEmployee } from "../../models/employee";
 import type { StaffingRequirement } from "../../models/staffing-requirement";
+import type { ShiftAssignment } from "../../models/assigner";
 import { DefaultAssignmentEngine } from "../default-assignment-engine";
 import { DefaultValidationEngine } from "../../validators";
 import { DefaultFairnessEngine } from "../../fairness/default-fairness-engine";
@@ -608,6 +609,212 @@ describe("DefaultAssignmentEngine", () => {
       expect(assignments).toHaveLength(2);
       const assignedIds = assignments.map((a) => a.employeeId).sort();
       expect(assignedIds).toEqual(["employee-1", "employee-2"]);
+    });
+  });
+
+  describe("early finish (equal-hours rebalancing)", () => {
+    // employee-1 has 11h from a prior closing shift; employee-2 has 8h
+    // from an opening shift *today*, which also makes them ineligible for
+    // today's closing slot (already has a shift that day) -- so
+    // employee-1 is the only eligible candidate, and is above the
+    // (11+8)/2 = 9.5h team average.
+    function aboveAverageSetup() {
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+      ];
+
+      const existingAssignments: ShiftAssignment[] = [
+        {
+          employeeId: "employee-1",
+          date: new Date("2026-08-27"),
+          shift: "closing",
+        },
+        {
+          employeeId: "employee-2",
+          date: new Date("2026-08-28"),
+          shift: "opening",
+        },
+      ];
+
+      return { employees, existingAssignments };
+    }
+
+    it("marks a closing assignment as early-finish when the employee is above the team average", () => {
+      const { employees, existingAssignments } = aboveAverageSetup();
+
+      const requirement = createRequirement({
+        openingBartenders: 0,
+        midBartenders: 0,
+        closingBartenders: 1,
+        earlyFinishes: 1,
+      });
+
+      const policy = createPolicy({ allowEarlyFinish: true });
+
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        new Date("2026-08-28"),
+        policy,
+        existingAssignments,
+      );
+
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0]).toMatchObject({
+        employeeId: "employee-1",
+        shift: "closing",
+        isEarlyFinish: true,
+      });
+    });
+
+    it("does not mark early-finish when the policy disallows it", () => {
+      const { employees, existingAssignments } = aboveAverageSetup();
+
+      const requirement = createRequirement({
+        openingBartenders: 0,
+        midBartenders: 0,
+        closingBartenders: 1,
+        earlyFinishes: 1,
+      });
+
+      const policy = createPolicy({ allowEarlyFinish: false });
+
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        new Date("2026-08-28"),
+        policy,
+        existingAssignments,
+      );
+
+      expect(assignments[0].isEarlyFinish).toBeFalsy();
+    });
+
+    it("does not mark early-finish when the daily budget is exhausted", () => {
+      const { employees, existingAssignments } = aboveAverageSetup();
+
+      const requirement = createRequirement({
+        openingBartenders: 0,
+        midBartenders: 0,
+        closingBartenders: 1,
+        earlyFinishes: 0,
+      });
+
+      const policy = createPolicy({ allowEarlyFinish: true });
+
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        new Date("2026-08-28"),
+        policy,
+        existingAssignments,
+      );
+
+      expect(assignments[0].isEarlyFinish).toBeFalsy();
+    });
+
+    it("never applies early finish to opening or mid shifts, even when above average", () => {
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+      ];
+
+      // Same above-average setup, but today's requirement asks for an
+      // opening slot instead of closing.
+      const existingAssignments: ShiftAssignment[] = [
+        {
+          employeeId: "employee-1",
+          date: new Date("2026-08-27"),
+          shift: "closing",
+        },
+        {
+          employeeId: "employee-2",
+          date: new Date("2026-08-28"),
+          shift: "mid",
+        },
+      ];
+
+      const requirement = createRequirement({
+        openingBartenders: 1,
+        midBartenders: 0,
+        closingBartenders: 0,
+        earlyFinishes: 1,
+      });
+
+      const policy = createPolicy({ allowEarlyFinish: true });
+
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        new Date("2026-08-28"),
+        policy,
+        existingAssignments,
+      );
+
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0].shift).toBe("opening");
+      expect(assignments[0].isEarlyFinish).toBeFalsy();
+    });
+
+    it("shares the daily early-finish budget across closing and double, not one each", () => {
+      const { employees, existingAssignments } = aboveAverageSetup();
+
+      // Both a closing and a double slot needed, but only 1 early-finish
+      // grant available for the whole day. With empty validators (this
+      // test isolates the budget mechanic, not realistic scheduling
+      // rules), employee-1 ends up eligible for both slots and wins both
+      // on the fairness tie-break -- but only the first (closing) should
+      // consume the shared budget; if budget were wrongly reset between
+      // the two assignShifts passes, the double would also get marked.
+      const requirement = createRequirement({
+        openingBartenders: 0,
+        midBartenders: 0,
+        closingBartenders: 1,
+        doubleShifts: 1,
+        earlyFinishes: 1,
+      });
+
+      const policy = createPolicy({ allowEarlyFinish: true });
+
+      const engine = new DefaultAssignmentEngine(
+        new DefaultValidationEngine([]),
+        new DefaultFairnessEngine([]),
+      );
+
+      const assignments = engine.assign(
+        employees,
+        requirement,
+        new Date("2026-08-28"),
+        policy,
+        existingAssignments,
+      );
+
+      const earlyFinishCount = assignments.filter(
+        (a) => a.isEarlyFinish,
+      ).length;
+
+      expect(earlyFinishCount).toBe(1);
     });
   });
 });
