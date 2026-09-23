@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { SchedulingPolicy } from "@/db/schema";
 import type { ShiftAssignment } from "../../models/assigner";
-import { computeShiftWindow, hoursBetween } from "../shift-time";
+import {
+  computeShiftWindow,
+  hoursBetween,
+  hoursWorkedSoFar,
+  EARLY_FINISH_REDUCTION_HOURS,
+} from "../shift-time";
 
 function createPolicy(
   overrides: Partial<SchedulingPolicy> = {},
@@ -258,5 +263,98 @@ describe("hoursBetween", () => {
         new Date("2026-08-28T13:30:00Z"),
       ),
     ).toBe(4.5);
+  });
+});
+
+describe("hoursWorkedSoFar", () => {
+  it("sums natural hours across an employee's real shifts", () => {
+    // Opening (8h) + closing with default rollover (11h) = 19h.
+    const assignments: ShiftAssignment[] = [
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-28"),
+        shift: "opening",
+      },
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-30"),
+        shift: "closing",
+      },
+    ];
+
+    expect(hoursWorkedSoFar("employee-1", assignments, createPolicy())).toBe(
+      19,
+    );
+  });
+
+  it("ignores 'off' records entirely", () => {
+    const assignments: ShiftAssignment[] = [
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-28"),
+        shift: "opening",
+      },
+      { employeeId: "employee-1", date: new Date("2026-08-29"), shift: "off" },
+    ];
+
+    expect(hoursWorkedSoFar("employee-1", assignments, createPolicy())).toBe(8);
+  });
+
+  it("reduces an early-finish-flagged assignment's counted hours by the fixed amount", () => {
+    // Closing with default rollover is naturally 11h; early finish
+    // should bring it down by EARLY_FINISH_REDUCTION_HOURS.
+    const assignments: ShiftAssignment[] = [
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-28"),
+        shift: "closing",
+        isEarlyFinish: true,
+      },
+    ];
+
+    expect(hoursWorkedSoFar("employee-1", assignments, createPolicy())).toBe(
+      11 - EARLY_FINISH_REDUCTION_HOURS,
+    );
+  });
+
+  it("only counts the given employee's own assignments", () => {
+    const assignments: ShiftAssignment[] = [
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-28"),
+        shift: "opening",
+      },
+      {
+        employeeId: "employee-2",
+        date: new Date("2026-08-28"),
+        shift: "closing",
+      },
+    ];
+
+    expect(hoursWorkedSoFar("employee-1", assignments, createPolicy())).toBe(8);
+  });
+
+  it("never goes negative, even if the reduction would exceed the shift's natural hours", () => {
+    const shortClosingPolicy = createPolicy({
+      closingShiftStart: "15:00:00",
+      closingShiftEnd: "16:00:00", // 1 hour, less than the 2 hour reduction
+    });
+
+    const assignments: ShiftAssignment[] = [
+      {
+        employeeId: "employee-1",
+        date: new Date("2026-08-28"),
+        shift: "closing",
+        isEarlyFinish: true,
+      },
+    ];
+
+    expect(
+      hoursWorkedSoFar("employee-1", assignments, shortClosingPolicy),
+    ).toBe(0);
+  });
+
+  it("returns 0 for an employee with no assignments", () => {
+    expect(hoursWorkedSoFar("employee-1", [], createPolicy())).toBe(0);
   });
 });

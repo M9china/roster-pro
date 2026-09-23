@@ -154,3 +154,51 @@ function addHours(date: Date, hours: number): Date {
 export function hoursBetween(start: Date, end: Date): number {
   return (end.getTime() - start.getTime()) / MS_PER_HOUR;
 }
+
+/**
+ * A fixed reduction applied to any assignment marked isEarlyFinish. Fixed
+ * rather than dynamically calculated (e.g. "exactly enough to reach the
+ * team average") because a dynamic amount isn't recomputable later --
+ * ShiftAssignment only stores a boolean flag, not the reduction itself, so
+ * hoursWorkedSoFar (below) needs a rule it can reapply consistently on
+ * every call, not a number captured only at the moment of assignment.
+ *
+ * Not policy-configurable yet -- the scheduling policy is an intermediate
+ * MVP schema, and this is a reasonable candidate for a future field
+ * rather than something to add speculatively now.
+ */
+export const EARLY_FINISH_REDUCTION_HOURS = 2;
+
+/**
+ * Total hours an employee has worked so far, across whatever assignments
+ * are passed in (typically the whole week-to-date). Used to compare
+ * against the team average when deciding whether a new closing/double
+ * assignment should be marked as an early finish -- see
+ * DefaultAssignmentEngine.
+ */
+export function hoursWorkedSoFar(
+  employeeId: string,
+  assignments: ShiftAssignment[],
+  policy: SchedulingPolicy,
+): number {
+  return assignments
+    .filter(
+      (assignment) =>
+        assignment.employeeId === employeeId && assignment.shift !== "off",
+    )
+    .reduce((total, assignment) => {
+      const window = computeShiftWindow(
+        assignment.shift as Exclude<ShiftType, "off">,
+        assignment.date,
+        policy,
+        employeeId,
+        assignments,
+      );
+      const naturalHours = hoursBetween(window.start, window.end);
+      const reduction = assignment.isEarlyFinish
+        ? EARLY_FINISH_REDUCTION_HOURS
+        : 0;
+
+      return total + Math.max(0, naturalHours - reduction);
+    }, 0);
+}
