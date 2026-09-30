@@ -38,8 +38,8 @@ function createPolicy(
     closingShiftStart: "15:00:00",
     closingShiftEnd: "02:00:00",
     version: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -184,8 +184,8 @@ describe("allocateDaysOff", () => {
         specialEvent: false,
         eventName: null,
         notes: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
       };
     }
 
@@ -298,6 +298,53 @@ describe("allocateDaysOff", () => {
         (a) => isoDate(a.date) === FRIDAY_ISO,
       ).length;
       expect(fridayCount).toBeLessThanOrEqual(1);
+    });
+
+    it("avoids multiple consecutive elevated-demand days, not just the single worst one", () => {
+      // Reproduces a real reported case: Thursday (high) sitting next to
+      // Saturday (very_high) among the unconstrained days. Excluding only
+      // the single worst day (Saturday) left Thursday exposed to the same
+      // "average" off-day share a quiet day would get -- fine for low
+      // demand, not fine for a day needing most of the roster. Both
+      // should now be avoided while the entitlement is still coverable
+      // from Mon/Tue/Wed alone.
+      const employees = ["e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8"].map(
+        createEmployee,
+      );
+      const policy = createPolicy({ daysOffPerWeek: 2 });
+
+      const forecasts = [
+        createForecast("2026-09-14", "normal"), // Mon
+        createForecast("2026-09-15", "normal"), // Tue
+        createForecast("2026-09-16", "low"), // Wed
+        createForecast("2026-09-17", "high"), // Thu
+        createForecast("2026-09-19", "very_high"), // Sat
+      ];
+
+      const allocations = allocateDaysOff(
+        employees,
+        WEEK_START,
+        policy,
+        forecasts,
+      );
+
+      const thursdayCount = allocations.filter(
+        (a) => isoDate(a.date) === "2026-09-17",
+      ).length;
+      const saturdayCount = allocations.filter(
+        (a) => isoDate(a.date) === "2026-09-19",
+      ).length;
+
+      expect(thursdayCount).toBe(0);
+      expect(saturdayCount).toBe(0);
+
+      // Still fully entitled, just concentrated onto Mon/Tue/Wed instead.
+      for (const employee of employees) {
+        const count = allocations.filter(
+          (a) => a.employeeId === employee.id,
+        ).length;
+        expect(count).toBe(2);
+      }
     });
   });
 });

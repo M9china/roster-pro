@@ -1,6 +1,6 @@
 import type { SchedulingPolicy, ServiceForecast } from "@/db/schema";
 import { PlanningEmployee, ShiftAssignment } from "./models";
-import { addDays, toISODateString } from "./constants/date-utils";
+import { addDays, toISODateString } from "./constants";
 
 
 const DAYS_IN_WEEK = 7;
@@ -26,9 +26,9 @@ const DEMAND_WEIGHT: Record<ServiceForecast["demandLevel"], number> = {
  * Two hard caps apply regardless of policy.daysOffPerWeek: at most one
  * employee may have Friday off, and at most one may have Sunday off.
  * Every other day of the week is "unconstrained" in the sense of having
- * no hard cap -- but unconstrained doesn't mean demand-blind: the busiest
- * day of the week (by forecasted demand) is deliberately excluded from
- * the preferred pool, provided the remaining days still comfortably cover
+ * no hard cap -- but unconstrained doesn't mean demand-blind: the
+ * highest-demand remaining days are excluded from the preferred pool one
+ * at a time, provided the remaining days still comfortably cover
  * everyone's entitlement, so days off don't route onto exactly the day
  * that needs the most coverage. This isn't a hard "never" rule (that was
  * tried and rejected -- forcing full staffing regardless of demand makes
@@ -65,18 +65,29 @@ export function allocateDaysOff(
     constrainedDates.map((date) => [date.toISOString(), 0]),
   );
 
-  // Lowest demand first. Drop the single highest-demand day from the
-  // preferred pool -- but only if what's left still covers the week's
-  // entitlement with room to spare for staggering across employees (see
-  // below); otherwise keep the full set rather than shrink the pool down
-  // to the point where everyone's forced onto the same one or two days.
+  // Lowest demand first. Iteratively exclude the current-highest-demand
+  // day from the preferred pool, as long as what remains still leaves a
+  // buffer beyond the bare entitlement (daysOffPerWeek + 1 spare day, so
+  // there's still room to stagger who's off on which day, rather than
+  // collapsing everyone onto the same one or two days).
+  //
+  // A single fixed drop isn't enough here: a week can have more than one
+  // elevated-demand day (e.g. high Thursday into very_high Friday/
+  // Saturday), and dropping only the single worst day left the
+  // second-worst exposed to the same "average" share of days-off that a
+  // quiet day could absorb but a high-demand day can't -- this is exactly
+  // what caused real understaffing on a "merely high" day sitting next to
+  // an even busier one.
   const sortedByDemand = [...unconstrainedDates].sort(
     (a, b) => demandWeight(a, forecasts) - demandWeight(b, forecasts),
   );
 
-  const reducedPool = sortedByDemand.slice(0, -1);
-  const preferredPool =
-    reducedPool.length >= policy.daysOffPerWeek ? reducedPool : sortedByDemand;
+  const bufferedMinimum = policy.daysOffPerWeek + 1;
+  const preferredPool = [...sortedByDemand];
+
+  while (preferredPool.length - 1 >= bufferedMinimum) {
+    preferredPool.pop(); // drop the current highest-demand remaining day
+  }
 
   const allocations: ShiftAssignment[] = [];
 
