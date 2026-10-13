@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-
 import type { ServiceForecast } from "@/db/schema";
-import { PlanningContext, PlanningEmployee } from "@/domains";
 import { DefaultPlanningEngine } from "../default-planning-engine";
+import { PlanningEmployee } from "../../models";
+import { PlanningContext } from "../planning-context";
 
 function createEmployee(
   overrides: Partial<PlanningEmployee> = {},
@@ -33,8 +33,8 @@ function createForecast(
     specialEvent: false,
     eventName: null,
     notes: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -65,8 +65,8 @@ function createContext(
       closingShiftStart: "15:00:00",
       closingShiftEnd: "02:00:00",
       version: 1,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     },
     ...overrides,
   };
@@ -440,8 +440,8 @@ describe("DefaultPlanningEngine - weekly planning", () => {
           closingShiftStart: "15:00:00",
           closingShiftEnd: "02:00:00",
           version: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-01T00:00:00.000Z"),
         },
         forecasts: [
           createForecast({ serviceDate: "2026-08-24" }),
@@ -466,8 +466,14 @@ describe("DefaultPlanningEngine - weekly planning", () => {
     it("includes pre-allocated day-off records in the final result", () => {
       const staffingCalculator = {
         calculate: vi.fn(() => ({
-          totalBartenders: 1,
-          openingBartenders: 1,
+          // Zero headcount needed: these tests exercise the day-off
+          // *wiring* (are allocations seeded and passed through), not
+          // capacity limits -- with a single employee and a non-zero
+          // requirement, capacity would correctly compute to zero and no
+          // day off could ever be allocated. Capacity math has its own
+          // dedicated suite (day-off-allocator.test.ts).
+          totalBartenders: 0,
+          openingBartenders: 0,
           midBartenders: 0,
           closingBartenders: 0,
           doubleShifts: 0,
@@ -501,8 +507,8 @@ describe("DefaultPlanningEngine - weekly planning", () => {
             closingShiftStart: "15:00:00",
             closingShiftEnd: "02:00:00",
             version: 1,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
           },
           forecasts: [createForecast({ serviceDate: "2026-08-26" })],
         }),
@@ -517,8 +523,14 @@ describe("DefaultPlanningEngine - weekly planning", () => {
     it("passes day-off allocations to assign() from the very first day, not just accumulated from real shifts", () => {
       const staffingCalculator = {
         calculate: vi.fn(() => ({
-          totalBartenders: 1,
-          openingBartenders: 1,
+          // Zero headcount needed: these tests exercise the day-off
+          // *wiring* (are allocations seeded and passed through), not
+          // capacity limits -- with a single employee and a non-zero
+          // requirement, capacity would correctly compute to zero and no
+          // day off could ever be allocated. Capacity math has its own
+          // dedicated suite (day-off-allocator.test.ts).
+          totalBartenders: 0,
+          openingBartenders: 0,
           midBartenders: 0,
           closingBartenders: 0,
           doubleShifts: 0,
@@ -566,8 +578,8 @@ describe("DefaultPlanningEngine - weekly planning", () => {
             closingShiftStart: "15:00:00",
             closingShiftEnd: "02:00:00",
             version: 1,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
           },
           forecasts: [createForecast({ serviceDate: "2026-08-26" })],
         }),
@@ -577,6 +589,81 @@ describe("DefaultPlanningEngine - weekly planning", () => {
       // see the week's 2 pre-allocated day-off records -- they're decided
       // up front, not accumulated only as real shifts get made.
       expect(receivedExistingAssignments[0]).toHaveLength(2);
+    });
+
+    it("drops the day-off record and warns when the assignment engine converts it into a shift", () => {
+      // Zero-headcount calculator => the lone employee is allocated 2 days
+      // off (Mon 24th and Tue 25th with the default week start).
+      const staffingCalculator = {
+        calculate: vi.fn(() => ({
+          totalBartenders: 0,
+          openingBartenders: 0,
+          midBartenders: 0,
+          closingBartenders: 0,
+          doubleShifts: 0,
+          earlyFinishes: 0,
+        })),
+      };
+
+      // Stands in for the real engine's never-blank fallback: it covers
+      // Monday with the very employee who has Monday off.
+      const assignmentEngine = {
+        assign: vi.fn((employees, requirement, date) => [
+          {
+            employeeId: employees[0].id,
+            date,
+            shift: "closing" as const,
+            isEarlyFinish: true,
+          },
+        ]),
+      };
+
+      const engine = new DefaultPlanningEngine(
+        staffingCalculator,
+        assignmentEngine,
+      );
+
+      const result = engine.generateWeek(
+        createContext({
+          policy: {
+            id: "policy-1",
+            restaurantId: "restaurant-1",
+            defaultShiftHours: 8,
+            minimumRestHours: 11,
+            daysOffPerWeek: 2,
+            allowDoubleShift: true,
+            allowEarlyFinish: true,
+            openingShiftStart: "09:00:00",
+            openingShiftEnd: "17:00:00",
+            closingShiftStart: "15:00:00",
+            closingShiftEnd: "02:00:00",
+            version: 1,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+          forecasts: [createForecast({ serviceDate: "2026-08-24" })],
+        }),
+      );
+
+      const monday = result.assignments.filter(
+        (a) => a.date.getTime() === new Date("2026-08-24").getTime(),
+      );
+
+      // Exactly one record for that employee/day -- the shift, not also an
+      // "off" (which would violate the table's one-row-per-day constraint).
+      expect(monday).toHaveLength(1);
+      expect(monday[0].shift).toBe("closing");
+
+      // Tuesday's day off is untouched.
+      expect(result.assignments.filter((a) => a.shift === "off")).toHaveLength(
+        1,
+      );
+
+      expect(
+        result.warnings.some((warning) =>
+          warning.includes("day off was converted"),
+        ),
+      ).toBe(true);
     });
   });
 });

@@ -36,11 +36,11 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     // validators -- days-off, minimum-rest -- and fairness scoring see the
     // full week, not just today in isolation. New assignments are
     // appended to this same array as they're made; only the newly-added
-    // ones (from startIndex on) are returned to the caller, so
+    // ones are returned to the caller, so
     // DefaultPlanningEngine's accumulation logic doesn't double-count
     // previous days.
     const assignments: ShiftAssignment[] = [...existingAssignments];
-    const startIndex = assignments.length;
+    const existingRefs = new Set(existingAssignments);
 
     this.assignShifts(
       activeEmployees,
@@ -87,7 +87,11 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       earlyFinishBudget,
     );
 
-    return assignments.slice(startIndex);
+    // Returned by identity rather than by slicing from the original length:
+    // the never-blank fallback below can remove a day-off record that sits
+    // inside the seeded portion of the list, which would shift every index
+    // and make a slice silently drop the first newly-created assignment.
+    return assignments.filter((assignment) => !existingRefs.has(assignment));
   }
 
   /**
@@ -119,8 +123,18 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       );
 
       if (eligible.length === 0) {
-        // No one left who can take this slot. Left unfilled rather than
-        // erroring -- the resulting shortfall is surfaced upstream by
+        // Never-blank fallback: before leaving the slot empty, pull in
+        // someone whose ONLY obstacle is a formal day off, as a shortened
+        // (early-finish) shift. Anything else that blocks someone -- not
+        // enough rest, the weekly working-days cap, the double-shift
+        // policy -- stays a hard block; those are safety/policy lines, not
+        // scheduling conveniences.
+        if (this.fillFromDayOff(employees, shift, date, assignments, policy)) {
+          continue;
+        }
+
+        // Genuinely nobody left. Left unfilled rather than erroring --
+        // the resulting shortfall is surfaced upstream by
         // DefaultPlanningEngine comparing requirement vs actual counts.
         break;
       }
@@ -151,6 +165,97 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
 
       assignments.push(assignment);
     }
+  }
+
+  /**
+   * Last-resort slot filler. Converts the least-loaded eligible employee's
+   * formal day off into a shortened (early-finish) shift rather than
+   * leaving the slot blank. Returns whether a slot was filled.
+   *
+   * Only considers employees whose sole obstacle is a day-off record: the
+   * candidate is validated as if that record weren't there, so rest hours,
+   * the weekly working-days cap, and the double-shift policy all still
+   * apply in full. Gated on policy.allowEarlyFinish -- the early finish is
+   * the compensation for losing the day off, so a restaurant that disables
+   * early finishes doesn't get days off overridden either.
+   *
+   * On success the day-off record is removed from `assignments` (the
+   * employee can't hold both an "off" and a real shift on one date) --
+   * DefaultPlanningEngine reconciles the same removal on its own list.
+   */
+  private fillFromDayOff(
+    employees: PlanningEmployee[],
+    shift: ShiftAssignment["shift"],
+    date: Date,
+    assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
+  ): boolean {
+    if (!policy.allowEarlyFinish) {
+      return false;
+    }
+
+    const candidates = employees.filter((employee) => {
+      const offIndex = this.dayOffIndex(employee.id, date, assignments);
+
+      if (offIndex === -1) {
+        return false;
+      }
+
+      const hasRealShiftToday = assignments.some(
+        (assignment) =>
+          assignment.employeeId === employee.id &&
+          assignment.shift !== "off" &&
+          isSameCalendarDay(assignment.date, date),
+      );
+
+      if (hasRealShiftToday) {
+        return false;
+      }
+
+      const withoutDayOff = assignments.filter(
+        (_, index) => index !== offIndex,
+      );
+
+      if (this.hasAssignmentForShift(employee.id, shift, date, withoutDayOff)) {
+        return false;
+      }
+
+      return this.validationEngine.validate(
+        employee,
+        { employeeId: employee.id, date, shift },
+        withoutDayOff,
+        policy,
+      );
+    });
+
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    const winner = this.pickFairest(candidates, assignments, date);
+
+    assignments.splice(this.dayOffIndex(winner.id, date, assignments), 1);
+    assignments.push({
+      employeeId: winner.id,
+      date,
+      shift,
+      isEarlyFinish: true,
+    });
+
+    return true;
+  }
+
+  private dayOffIndex(
+    employeeId: string,
+    date: Date,
+    assignments: ShiftAssignment[],
+  ): number {
+    return assignments.findIndex(
+      (assignment) =>
+        assignment.employeeId === employeeId &&
+        assignment.shift === "off" &&
+        isSameCalendarDay(assignment.date, date),
+    );
   }
 
   private isEligible(

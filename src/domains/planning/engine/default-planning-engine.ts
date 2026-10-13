@@ -1,6 +1,6 @@
 import type { ServiceForecast, SchedulingPolicy } from "@/db/schema";
 import { shortfallWarnings } from "./shortfall-warnings";
-import { allocateDaysOff } from "../days-off-allocator";
+import { isSameCalendarDay } from "../constants/date-utils";
 import {
   AssignmentEngine,
   PlanningContext,
@@ -10,6 +10,8 @@ import {
   ShiftAssignment,
   StaffingCalculator,
 } from "@/domains";
+
+import { allocateDaysOff } from "../days-off-allocator";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(
@@ -39,6 +41,7 @@ export class DefaultPlanningEngine implements PlanningEngine {
       context.weekStart,
       context.policy,
       context.forecasts,
+      this.staffingCalculator,
     );
 
     const warnings: string[] = [];
@@ -62,6 +65,27 @@ export class DefaultPlanningEngine implements PlanningEngine {
         ...shortfallWarnings(requirement, dayAssignments, forecast.serviceDate),
       );
 
+      // If the assignment engine had to convert someone's day off into a
+      // shortened shift to avoid leaving a slot blank, drop that day-off
+      // record here too (an employee can't hold both an "off" and a real
+      // shift on the same date) and say so, so the manager can see which
+      // days off were traded away rather than discovering it later.
+      for (const assignment of dayAssignments) {
+        const offIndex = assignments.findIndex(
+          (existing) =>
+            existing.shift === "off" &&
+            existing.employeeId === assignment.employeeId &&
+            isSameCalendarDay(existing.date, assignment.date),
+        );
+
+        if (offIndex !== -1) {
+          assignments.splice(offIndex, 1);
+          warnings.push(
+            dayOffConvertedWarning(context, assignment, forecast.serviceDate),
+          );
+        }
+      }
+
       assignments.push(...dayAssignments);
     }
 
@@ -71,4 +95,19 @@ export class DefaultPlanningEngine implements PlanningEngine {
       generatedAt: new Date(),
     };
   }
+}
+
+function dayOffConvertedWarning(
+  context: PlanningContext,
+  assignment: ShiftAssignment,
+  serviceDate: string,
+): string {
+  const employee = context.employees.find(
+    (candidate) => candidate.id === assignment.employeeId,
+  );
+  const name = employee
+    ? `${employee.firstName} ${employee.lastName}`
+    : assignment.employeeId;
+
+  return `${serviceDate}: ${name}'s day off was converted to an early-finish ${assignment.shift} shift to avoid leaving it unfilled.`;
 }

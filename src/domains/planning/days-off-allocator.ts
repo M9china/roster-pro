@@ -1,93 +1,75 @@
 import type { SchedulingPolicy, ServiceForecast } from "@/db/schema";
 import { PlanningEmployee, ShiftAssignment } from "./models";
+import { StaffingCalculator } from "./calculators";
 import { addDays, toISODateString } from "./constants";
-
 
 const DAYS_IN_WEEK = 7;
 const FRIDAY = 5; // Date#getUTCDay(): 0 = Sunday ... 6 = Saturday
 const SUNDAY = 0;
 const MAX_OFF_ON_CAPPED_DAY = 1;
 
-const DEMAND_WEIGHT: Record<ServiceForecast["demandLevel"], number> = {
-  very_low: 0,
-  low: 1,
-  normal: 2,
-  high: 3,
-  very_high: 4,
-};
-
 /**
  * Pre-allocates each active employee's entitled days off for the week,
  * before any shift-filling happens -- "decide days-off first, then assign
- * shifts", rather than trying to detect and fix cap violations after the
- * fact (the codebase has no backtracking infrastructure, so "assign, then
- * undo if wrong" would mean building that from scratch just for this).
+ * shifts". Represented as real ShiftAssignment records with shift: "off",
+ * seeded into the week's assignment list so the normal demand-driven fill
+ * already treats these employees as unavailable that day.
  *
- * Two hard caps apply regardless of policy.daysOffPerWeek: at most one
- * employee may have Friday off, and at most one may have Sunday off.
- * Every other day of the week is "unconstrained" in the sense of having
- * no hard cap -- but unconstrained doesn't mean demand-blind: the
- * highest-demand remaining days are excluded from the preferred pool one
- * at a time, provided the remaining days still comfortably cover
- * everyone's entitlement, so days off don't route onto exactly the day
- * that needs the most coverage. This isn't a hard "never" rule (that was
- * tried and rejected -- forcing full staffing regardless of demand makes
- * no sense) -- it's a preference that only yields if it has to.
+ * Capacity-aware, not demand-ranked: an earlier version avoided the
+ * highest-demand day(s) by relative ranking, which turned out to just
+ * relocate the problem -- concentrating the same total off-days onto
+ * fewer days made THOSE days understaffed instead. This version instead
+ * computes each day's actual required headcount (via the real staffing
+ * calculator) and caps how many people can be off that day at
+ * `roster size - that day's requirement`, so a day can never be allocated
+ * more absences than it can structurally absorb. Friday and Sunday
+ * additionally never exceed 1 person off, regardless of how much spare
+ * capacity exists.
  *
- * Off-days are represented as real ShiftAssignment records with
- * shift: "off", meant to be seeded into the week's assignment list before
- * the normal demand-driven fill runs. This reuses existing machinery
- * rather than adding a parallel "who's off" concept: hasAssignmentForDate
- * already treats any same-day assignment (off included) as "unavailable",
- * and DoubleShiftValidator already rejects a double for anyone with a
- * same-day assignment -- both correctly exclude an employee from that
- * day's shifts with no further changes needed there.
+ * When capacity runs out everywhere before an employee's full entitlement
+ * is used, that employee simply gets fewer days off this week rather than
+ * risking an understaffed day -- the same trade-off already made for the
+ * Friday/Sunday cap. This is a soft shortfall, not a hard guarantee
+ * violation; pairs with the "never leave a shift unfilled" fallback in
+ * DefaultAssignmentEngine, which is the actual backstop against blanks.
  */
 export function allocateDaysOff(
   employees: PlanningEmployee[],
   weekStart: Date,
   policy: SchedulingPolicy,
   forecasts: ServiceForecast[],
+  staffingCalculator: StaffingCalculator,
 ): ShiftAssignment[] {
   const activeEmployees = employees.filter((employee) => employee.active);
+
+  // Nothing to allocate -- skip the capacity computation entirely rather
+  // than calling the staffing calculator for every day of the week just to
+  // arrive at an empty result.
+  if (activeEmployees.length === 0 || policy.daysOffPerWeek <= 0) {
+    return [];
+  }
+
   const weekDates = Array.from({ length: DAYS_IN_WEEK }, (_, i) =>
     addDays(weekStart, i),
   );
-
-  const unconstrainedDates = weekDates.filter(
-    (date) => date.getUTCDay() !== FRIDAY && date.getUTCDay() !== SUNDAY,
-  );
-  const constrainedDates = weekDates.filter(
-    (date) => date.getUTCDay() === FRIDAY || date.getUTCDay() === SUNDAY,
+  const dateIndex = new Map(
+    weekDates.map((date, i) => [date.toISOString(), i]),
   );
 
-  const constrainedDayUsage = new Map<string, number>(
-    constrainedDates.map((date) => [date.toISOString(), 0]),
+  const capacity = new Map<string, number>(
+    weekDates.map((date) => {
+      const key = date.toISOString();
+      const needed = requiredHeadcount(date, forecasts, staffingCalculator);
+      const bySupply = Math.max(0, activeEmployees.length - needed);
+      const dayOfWeek = date.getUTCDay();
+      const cap =
+        dayOfWeek === FRIDAY || dayOfWeek === SUNDAY
+          ? Math.min(MAX_OFF_ON_CAPPED_DAY, bySupply)
+          : bySupply;
+
+      return [key, cap];
+    }),
   );
-
-  // Lowest demand first. Iteratively exclude the current-highest-demand
-  // day from the preferred pool, as long as what remains still leaves a
-  // buffer beyond the bare entitlement (daysOffPerWeek + 1 spare day, so
-  // there's still room to stagger who's off on which day, rather than
-  // collapsing everyone onto the same one or two days).
-  //
-  // A single fixed drop isn't enough here: a week can have more than one
-  // elevated-demand day (e.g. high Thursday into very_high Friday/
-  // Saturday), and dropping only the single worst day left the
-  // second-worst exposed to the same "average" share of days-off that a
-  // quiet day could absorb but a high-demand day can't -- this is exactly
-  // what caused real understaffing on a "merely high" day sitting next to
-  // an even busier one.
-  const sortedByDemand = [...unconstrainedDates].sort(
-    (a, b) => demandWeight(a, forecasts) - demandWeight(b, forecasts),
-  );
-
-  const bufferedMinimum = policy.daysOffPerWeek + 1;
-  const preferredPool = [...sortedByDemand];
-
-  while (preferredPool.length - 1 >= bufferedMinimum) {
-    preferredPool.pop(); // drop the current highest-demand remaining day
-  }
 
   const allocations: ShiftAssignment[] = [];
 
@@ -95,36 +77,50 @@ export function allocateDaysOff(
     const daysNeeded = policy.daysOffPerWeek;
     const chosen: Date[] = [];
 
-    // Round-robin through the preferred pool, staggered per employee (by
-    // their position in the roster), so days off spread across the week
-    // rather than everyone landing on the same day -- which would just
-    // relocate the shortfall problem to a different day, not solve it.
-    for (
-      let offset = 0;
-      offset < preferredPool.length && chosen.length < daysNeeded;
-      offset++
-    ) {
-      const date =
-        preferredPool[(employeeIndex + offset) % preferredPool.length];
-      chosen.push(date);
-    }
+    while (chosen.length < daysNeeded) {
+      const candidates = weekDates
+        .filter((date) => !chosen.some((d) => d.getTime() === date.getTime()))
+        .filter((date) => (capacity.get(date.toISOString()) ?? 0) > 0);
 
-    // Only reach for a Friday/Sunday if still short after using every
-    // preferred-pool day once (relevant only when daysOffPerWeek exceeds
-    // the pool size -- not the case for the default policy value), and
-    // only while that day's cap allows it.
-    for (const date of constrainedDates) {
-      if (chosen.length >= daysNeeded) {
+      if (candidates.length === 0) {
+        // Capacity genuinely exhausted everywhere this employee doesn't
+        // already have off -- they fall short of full entitlement rather
+        // than forcing a day below what it needs.
         break;
       }
 
-      const key = date.toISOString();
-      const used = constrainedDayUsage.get(key) ?? 0;
+      // Most spare capacity first; ties broken by a rotation keyed to
+      // this employee's position, so days off still spread across
+      // employees rather than everyone preferring the identical day.
+      candidates.sort((a, b) => {
+        const capDiff =
+          (capacity.get(b.toISOString()) ?? 0) -
+          (capacity.get(a.toISOString()) ?? 0);
 
-      if (used < MAX_OFF_ON_CAPPED_DAY) {
-        chosen.push(date);
-        constrainedDayUsage.set(key, used + 1);
-      }
+        if (capDiff !== 0) {
+          return capDiff;
+        }
+
+        const rankA =
+          ((((dateIndex.get(a.toISOString()) ?? 0) - employeeIndex) %
+            DAYS_IN_WEEK) +
+            DAYS_IN_WEEK) %
+          DAYS_IN_WEEK;
+        const rankB =
+          ((((dateIndex.get(b.toISOString()) ?? 0) - employeeIndex) %
+            DAYS_IN_WEEK) +
+            DAYS_IN_WEEK) %
+          DAYS_IN_WEEK;
+
+        return rankA - rankB;
+      });
+
+      const picked = candidates[0];
+      chosen.push(picked);
+      capacity.set(
+        picked.toISOString(),
+        (capacity.get(picked.toISOString()) ?? 0) - 1,
+      );
     }
 
     for (const date of chosen) {
@@ -133,19 +129,57 @@ export function allocateDaysOff(
   });
 
   return allocations;
+}
 
-  function demandWeight(date: Date, forecasts: ServiceForecast[]): number {
-    const forDate = forecasts.filter(
-      (forecast) => forecast.serviceDate === toISODateString(date),
-    );
-    const forecast =
-      forDate.find((f) => f.servicePeriod === "full_day") ?? forDate[0];
+/**
+ * Every bartender slot a day needs -- opening, mid, closing, and double --
+ * each requires a genuinely available person, so all four count toward
+ * how many people that day can safely lose to a day off.
+ */
+function requiredHeadcount(
+  date: Date,
+  forecasts: ServiceForecast[],
+  staffingCalculator: StaffingCalculator,
+): number {
+  const forDate = forecasts.filter(
+    (forecast) => forecast.serviceDate === toISODateString(date),
+  );
+  const forecast =
+    forDate.find((f) => f.servicePeriod === "full_day") ??
+    forDate[0] ??
+    neutralForecast(date);
 
-    // No forecast entered for this day yet -- treat as neutral demand
-    // rather than assuming it's safe (very_low) or should be avoided
-    // (very_high); missing data shouldn't bias the allocation either way.
-    return forecast
-      ? DEMAND_WEIGHT[forecast.demandLevel]
-      : DEMAND_WEIGHT.normal;
-  }
+  const requirement = staffingCalculator.calculate(forecast);
+
+  return (
+    requirement.openingBartenders +
+    requirement.midBartenders +
+    requirement.closingBartenders +
+    requirement.doubleShifts
+  );
+}
+
+/**
+ * No forecast entered for this day yet -- assumed "normal" demand rather
+ * than treating the day as needing nobody (which would make every
+ * unforecasted day look like unlimited days-off capacity). Built as a
+ * real ServiceForecast and run through the real calculator rather than a
+ * second hardcoded baseline, so this can never drift out of sync with
+ * what DefaultStaffingCalculator actually does for "normal" demand.
+ */
+function neutralForecast(date: Date): ServiceForecast {
+  return {
+    id: "synthetic-neutral-forecast",
+    restaurantId: "synthetic",
+    serviceDate: toISODateString(date),
+    servicePeriod: "full_day",
+    expectedReservations: 0,
+    expectedWalkIns: 0,
+    demandLevel: "normal",
+    specialEvent: false,
+    eventName: null,
+    notes: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
 }

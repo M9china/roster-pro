@@ -1,7 +1,3 @@
-import { restaurantRepository } from "@/db/repositories/restaurant.repository";
-import { employeeRepository } from "@/db/repositories/employee.repository";
-import { serviceForecastRepository } from "@/db/repositories/service-forecast.repository";
-import { scheduleRepository } from "@/db/repositories/schedule.repository";
 import type { ServiceForecast } from "@/db/schema";
 import type {
   Schedule,
@@ -20,6 +16,7 @@ import { defaultFairnessFactors } from "./fairness/fairness-config";
 import { toPlanningEmployee, type PlanningEmployee } from "./models/employee";
 import { addDays, toISODateString } from "./constants/date-utils";
 import { MinimumRestValidator } from "./validators";
+import { employeeRepository, restaurantRepository, scheduleRepository, serviceForecastRepository } from "@/db/repositories";
 
 const DAYS_IN_WEEK = 7;
 
