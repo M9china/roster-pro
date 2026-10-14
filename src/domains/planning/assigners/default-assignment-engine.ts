@@ -3,26 +3,44 @@ import type { PlanningEmployee } from "../models/employee";
 import type { StaffingRequirement } from "../models/staffing-requirement";
 import type { ShiftAssignment } from "../models/assigner";
 import type { ValidationEngine } from "../validators/validation-engine";
+import type { FairnessEngine } from "../fairness/fairness-engine";
+import type { FairnessAssignment } from "../fairness/fairness-assignment";
+import type { SchedulingPolicy } from "@/db/schema";
+import { isSameCalendarDay } from "../constants/date-utils";
+import { hoursWorkedSoFar } from "../constants/shift-time";
+
+/** A mutable, shared counter threaded through the closing and double
+ * shift-filling passes for one day, so the day's early-finish budget
+ * (requirement.earlyFinishes) is spent across both passes, not reset
+ * between them. */
+interface EarlyFinishBudget {
+  remaining: number;
+}
 
 export class DefaultAssignmentEngine implements AssignmentEngine {
-  constructor(private readonly validationEngine: ValidationEngine) {}
+  constructor(
+    private readonly validationEngine: ValidationEngine,
+    private readonly fairnessEngine: FairnessEngine,
+  ) {}
 
   assign(
     employees: PlanningEmployee[],
     requirement: StaffingRequirement,
     date: Date,
+    policy: SchedulingPolicy,
     existingAssignments: ShiftAssignment[] = [],
   ): ShiftAssignment[] {
     const activeEmployees = employees.filter((employee) => employee.active);
 
     // Seeded with the week's assignments so far (previous days) so
-    // validators -- days-off, minimum-rest -- see the full week, not just
-    // today in isolation. New assignments are appended to this same array
-    // as they're made; only the newly-added ones (from startIndex on) are
-    // returned to the caller, so DefaultPlanningEngine's accumulation
-    // logic doesn't double-count previous days.
+    // validators -- days-off, minimum-rest -- and fairness scoring see the
+    // full week, not just today in isolation. New assignments are
+    // appended to this same array as they're made; only the newly-added
+    // ones are returned to the caller, so
+    // DefaultPlanningEngine's accumulation logic doesn't double-count
+    // previous days.
     const assignments: ShiftAssignment[] = [...existingAssignments];
-    const startIndex = assignments.length;
+    const existingRefs = new Set(existingAssignments);
 
     this.assignShifts(
       activeEmployees,
@@ -30,6 +48,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       "opening",
       date,
       assignments,
+      policy,
     );
 
     this.assignShifts(
@@ -38,7 +57,15 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       "mid",
       date,
       assignments,
+      policy,
     );
+
+    // Early finish only applies to closing/double (see assignShifts) --
+    // shared across both passes so the day's budget (requirement.
+    // earlyFinishes) is spent once across the day, not once per shift type.
+    const earlyFinishBudget: EarlyFinishBudget = {
+      remaining: policy.allowEarlyFinish ? requirement.earlyFinishes : 0,
+    };
 
     this.assignShifts(
       activeEmployees,
@@ -46,6 +73,8 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       "closing",
       date,
       assignments,
+      policy,
+      earlyFinishBudget,
     );
 
     this.assignShifts(
@@ -54,71 +83,275 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       "double",
       date,
       assignments,
+      policy,
+      earlyFinishBudget,
     );
 
-    return assignments.slice(startIndex);
+    // Returned by identity rather than by slicing from the original length:
+    // the never-blank fallback below can remove a day-off record that sits
+    // inside the seeded portion of the list, which would shift every index
+    // and make a slice silently drop the first newly-created assignment.
+    return assignments.filter((assignment) => !existingRefs.has(assignment));
   }
 
+  /**
+   * Fills one shift type's slots one at a time: each iteration re-derives
+   * who's still eligible, asks the fairness engine to score them, and
+   * assigns the highest-scoring (least-loaded-so-far) eligible employee.
+   * Re-deriving eligibility every iteration (rather than sorting once) is
+   * deliberate -- each assignment changes who's still available for the
+   * next slot (same-day conflicts) and shifts everyone's fairness scores,
+   * so a stale ranking would keep picking the same "fair" order regardless
+   * of who was already picked this round.
+   */
   private assignShifts(
     employees: PlanningEmployee[],
     required: number,
     shift: ShiftAssignment["shift"],
     date: Date,
     assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
+    earlyFinishBudget?: EarlyFinishBudget,
   ): void {
     if (required <= 0) {
       return;
     }
 
-    for (const employee of employees) {
-      // Normal shifts can only be assigned to an employee
-      // who does not already have a shift that day.
-      //
-      // Double shifts are the exception because they
-      // explicitly represent working twice in one day.
-      if (
-        shift !== "double" &&
-        this.hasAssignmentForDate(employee.id, date, assignments)
-      ) {
-        continue;
+    while (this.countForShiftToday(assignments, shift, date) < required) {
+      const eligible = employees.filter((employee) =>
+        this.isEligible(employee, shift, date, assignments, policy),
+      );
+
+      if (eligible.length === 0) {
+        // Never-blank fallback: before leaving the slot empty, pull in
+        // someone whose ONLY obstacle is a formal day off, as a shortened
+        // (early-finish) shift. Anything else that blocks someone -- not
+        // enough rest, the weekly working-days cap, the double-shift
+        // policy -- stays a hard block; those are safety/policy lines, not
+        // scheduling conveniences.
+        if (this.fillFromDayOff(employees, shift, date, assignments, policy)) {
+          continue;
+        }
+
+        // Genuinely nobody left. Left unfilled rather than erroring --
+        // the resulting shortfall is surfaced upstream by
+        // DefaultPlanningEngine comparing requirement vs actual counts.
+        break;
       }
 
-      if (this.hasAssignmentForShift(employee.id, shift, date, assignments)) {
-        continue;
-      }
-
-      const candidate: ShiftAssignment = {
-        employeeId: employee.id,
+      const winner = this.pickFairest(eligible, assignments, date);
+      const assignment: ShiftAssignment = {
+        employeeId: winner.id,
         date,
         shift,
       };
 
-      const valid = this.validationEngine.validate(
-        employee,
-        candidate,
-        assignments,
+      // Early finish: shift-count-based fairness doesn't distinguish a
+      // long double from a short opening, so someone can look "fair" by
+      // count while genuinely running ahead on hours (exactly the
+      // scenario this is meant to catch). Only closing/double are
+      // eligible -- those are the shift types with a real, flexible end
+      // time worth cutting short; opening/mid already end at fixed,
+      // reasonable times.
+      if (
+        earlyFinishBudget &&
+        earlyFinishBudget.remaining > 0 &&
+        (shift === "closing" || shift === "double") &&
+        this.isAboveTeamAverage(winner.id, employees, assignments, policy)
+      ) {
+        assignment.isEarlyFinish = true;
+        earlyFinishBudget.remaining -= 1;
+      }
+
+      assignments.push(assignment);
+    }
+  }
+
+  /**
+   * Last-resort slot filler. Converts the least-loaded eligible employee's
+   * formal day off into a shortened (early-finish) shift rather than
+   * leaving the slot blank. Returns whether a slot was filled.
+   *
+   * Only considers employees whose sole obstacle is a day-off record: the
+   * candidate is validated as if that record weren't there, so rest hours,
+   * the weekly working-days cap, and the double-shift policy all still
+   * apply in full. Gated on policy.allowEarlyFinish -- the early finish is
+   * the compensation for losing the day off, so a restaurant that disables
+   * early finishes doesn't get days off overridden either.
+   *
+   * On success the day-off record is removed from `assignments` (the
+   * employee can't hold both an "off" and a real shift on one date) --
+   * DefaultPlanningEngine reconciles the same removal on its own list.
+   */
+  private fillFromDayOff(
+    employees: PlanningEmployee[],
+    shift: ShiftAssignment["shift"],
+    date: Date,
+    assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
+  ): boolean {
+    if (!policy.allowEarlyFinish) {
+      return false;
+    }
+
+    const candidates = employees.filter((employee) => {
+      const offIndex = this.dayOffIndex(employee.id, date, assignments);
+
+      if (offIndex === -1) {
+        return false;
+      }
+
+      const hasRealShiftToday = assignments.some(
+        (assignment) =>
+          assignment.employeeId === employee.id &&
+          assignment.shift !== "off" &&
+          isSameCalendarDay(assignment.date, date),
       );
 
-      if (!valid) {
-        continue;
+      if (hasRealShiftToday) {
+        return false;
       }
 
-      assignments.push(candidate);
+      const withoutDayOff = assignments.filter(
+        (_, index) => index !== offIndex,
+      );
 
-      // Scoped to today: `assignments` can now span the whole week (it's
-      // seeded with prior days), so counting every assignment of this
-      // shift type across all dates would overcount "how many opening
-      // slots has TODAY filled" once earlier days are in the mix.
-      const assignedForShift = assignments.filter(
-        (assignment) =>
-          assignment.shift === shift &&
-          this.isSameCalendarDay(assignment.date, date),
-      ).length;
-
-      if (assignedForShift >= required) {
-        break;
+      if (this.hasAssignmentForShift(employee.id, shift, date, withoutDayOff)) {
+        return false;
       }
+
+      return this.validationEngine.validate(
+        employee,
+        { employeeId: employee.id, date, shift },
+        withoutDayOff,
+        policy,
+      );
+    });
+
+    if (candidates.length === 0) {
+      return false;
     }
+
+    const winner = this.pickFairest(candidates, assignments, date);
+
+    assignments.splice(this.dayOffIndex(winner.id, date, assignments), 1);
+    assignments.push({
+      employeeId: winner.id,
+      date,
+      shift,
+      isEarlyFinish: true,
+    });
+
+    return true;
+  }
+
+  private dayOffIndex(
+    employeeId: string,
+    date: Date,
+    assignments: ShiftAssignment[],
+  ): number {
+    return assignments.findIndex(
+      (assignment) =>
+        assignment.employeeId === employeeId &&
+        assignment.shift === "off" &&
+        isSameCalendarDay(assignment.date, date),
+    );
+  }
+
+  private isEligible(
+    employee: PlanningEmployee,
+    shift: ShiftAssignment["shift"],
+    date: Date,
+    assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
+  ): boolean {
+    // Normal shifts can only go to an employee who doesn't already have a
+    // shift that day. Double shifts are the exception -- they explicitly
+    // represent working twice in one day (DoubleShiftValidator is what
+    // actually gates whether that's allowed).
+    if (
+      shift !== "double" &&
+      this.hasAssignmentForDate(employee.id, date, assignments)
+    ) {
+      return false;
+    }
+
+    if (this.hasAssignmentForShift(employee.id, shift, date, assignments)) {
+      return false;
+    }
+
+    const candidate: ShiftAssignment = { employeeId: employee.id, date, shift };
+
+    return this.validationEngine.validate(
+      employee,
+      candidate,
+      assignments,
+      policy,
+    );
+  }
+
+  private pickFairest(
+    eligible: PlanningEmployee[],
+    assignments: ShiftAssignment[],
+    date: Date,
+  ): PlanningEmployee {
+    const { scores } = this.fairnessEngine.evaluate({
+      employees: eligible,
+      assignments: toFairnessAssignments(assignments),
+      // Not currently read by any built-in factor -- every factor derives
+      // everything it needs directly from `assignments` -- but required by
+      // the interface. `date` is a reasonable stand-in for "as of when".
+      weekStart: date,
+    });
+
+    return scores.reduce((best, current) => {
+      const isHigherScore = current.score > best.score;
+      const isTieBrokenLower =
+        current.score === best.score && current.employee.id < best.employee.id;
+
+      return isHigherScore || isTieBrokenLower ? current : best;
+    }).employee;
+  }
+
+  /**
+   * True when this employee's hours-so-far (before this new assignment)
+   * already exceed the active team's average. Compared before, not after,
+   * adding the new shift -- this asks "are they already ahead", not
+   * "would this specific shift put them ahead".
+   */
+  private isAboveTeamAverage(
+    employeeId: string,
+    employees: PlanningEmployee[],
+    assignments: ShiftAssignment[],
+    policy: SchedulingPolicy,
+  ): boolean {
+    if (employees.length === 0) {
+      return false;
+    }
+
+    const hoursByEmployee = employees.map((employee) =>
+      hoursWorkedSoFar(employee.id, assignments, policy),
+    );
+    const average =
+      hoursByEmployee.reduce((total, hours) => total + hours, 0) /
+      hoursByEmployee.length;
+
+    return hoursWorkedSoFar(employeeId, assignments, policy) > average;
+  }
+
+  private countForShiftToday(
+    assignments: ShiftAssignment[],
+    shift: ShiftAssignment["shift"],
+    date: Date,
+  ): number {
+    // Scoped to today: `assignments` can span the whole week (it's seeded
+    // with prior days), so counting every assignment of this shift type
+    // across all dates would overcount "how many opening slots has TODAY
+    // filled" once earlier days are in the mix.
+    return assignments.filter(
+      (assignment) =>
+        assignment.shift === shift && isSameCalendarDay(assignment.date, date),
+    ).length;
   }
 
   private hasAssignmentForDate(
@@ -129,7 +362,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     return assignments.some(
       (assignment) =>
         assignment.employeeId === employeeId &&
-        this.isSameCalendarDay(assignment.date, date),
+        isSameCalendarDay(assignment.date, date),
     );
   }
 
@@ -139,7 +372,7 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     date: Date,
     assignments: ShiftAssignment[],
   ): boolean {
-    // Also date-scoped, for the same reason as assignedForShift above --
+    // Also date-scoped, for the same reason as countForShiftToday --
     // without it, an employee assigned "opening" once this week would be
     // blocked from ever getting "opening" again on any later day, since
     // `assignments` now carries the whole week rather than just today.
@@ -147,15 +380,19 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       (assignment) =>
         assignment.employeeId === employeeId &&
         assignment.shift === shift &&
-        this.isSameCalendarDay(assignment.date, date),
+        isSameCalendarDay(assignment.date, date),
     );
   }
+}
 
-  private isSameCalendarDay(first: Date, second: Date): boolean {
-    return (
-      first.getFullYear() === second.getFullYear() &&
-      first.getMonth() === second.getMonth() &&
-      first.getDate() === second.getDate()
-    );
-  }
+function toFairnessAssignments(
+  assignments: ShiftAssignment[],
+): FairnessAssignment[] {
+  return assignments
+    .filter((assignment) => assignment.shift !== "off")
+    .map((assignment) => ({
+      employeeId: assignment.employeeId,
+      date: assignment.date,
+      shiftType: assignment.shift as FairnessAssignment["shiftType"],
+    }));
 }

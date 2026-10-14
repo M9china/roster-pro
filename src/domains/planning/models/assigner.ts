@@ -6,4 +6,6 @@ export interface ShiftAssignment {
   date: Date;
 
   shift: ShiftType;
+
+  isEarlyFinish?: boolean;
 }

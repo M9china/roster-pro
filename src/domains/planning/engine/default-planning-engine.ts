@@ -1,6 +1,17 @@
-import type { ServiceForecast } from "@/db/schema";
+import type { ServiceForecast, SchedulingPolicy } from "@/db/schema";
 import { shortfallWarnings } from "./shortfall-warnings";
-import { AssignmentEngine, PlanningContext, PlanningEmployee, PlanningEngine, PlanningResult, ShiftAssignment, StaffingCalculator } from "@/domains";
+import { isSameCalendarDay } from "../constants/date-utils";
+import {
+  AssignmentEngine,
+  PlanningContext,
+  PlanningEmployee,
+  PlanningEngine,
+  PlanningResult,
+  ShiftAssignment,
+  StaffingCalculator,
+} from "@/domains";
+
+import { allocateDaysOff } from "../days-off-allocator";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(
@@ -12,14 +23,27 @@ export class DefaultPlanningEngine implements PlanningEngine {
     employees: PlanningEmployee[],
     forecast: ServiceForecast,
     date: Date,
+    policy: SchedulingPolicy,
   ): ShiftAssignment[] {
     const requirement = this.staffingCalculator.calculate(forecast);
 
-    return this.assignmentEngine.assign(employees, requirement, date);
+    return this.assignmentEngine.assign(employees, requirement, date, policy);
   }
 
   generateWeek(context: PlanningContext): PlanningResult {
-    const assignments: ShiftAssignment[] = [];
+    // Days off are decided before any shift is filled, not detected and
+    // patched up afterward -- see day-off-allocator.ts. Seeded into
+    // `assignments` up front so the normal demand-driven fill below
+    // already treats these employees as unavailable on their off days,
+    // with no special-casing needed in the fill loop itself.
+    const assignments: ShiftAssignment[] = allocateDaysOff(
+      context.employees,
+      context.weekStart,
+      context.policy,
+      context.forecasts,
+      this.staffingCalculator,
+    );
+
     const warnings: string[] = [];
 
     for (const forecast of context.forecasts) {
@@ -33,12 +57,34 @@ export class DefaultPlanningEngine implements PlanningEngine {
         context.employees,
         requirement,
         date,
+        context.policy,
         assignments,
       );
 
       warnings.push(
         ...shortfallWarnings(requirement, dayAssignments, forecast.serviceDate),
       );
+
+      // If the assignment engine had to convert someone's day off into a
+      // shortened shift to avoid leaving a slot blank, drop that day-off
+      // record here too (an employee can't hold both an "off" and a real
+      // shift on the same date) and say so, so the manager can see which
+      // days off were traded away rather than discovering it later.
+      for (const assignment of dayAssignments) {
+        const offIndex = assignments.findIndex(
+          (existing) =>
+            existing.shift === "off" &&
+            existing.employeeId === assignment.employeeId &&
+            isSameCalendarDay(existing.date, assignment.date),
+        );
+
+        if (offIndex !== -1) {
+          assignments.splice(offIndex, 1);
+          warnings.push(
+            dayOffConvertedWarning(context, assignment, forecast.serviceDate),
+          );
+        }
+      }
 
       assignments.push(...dayAssignments);
     }
@@ -49,4 +95,19 @@ export class DefaultPlanningEngine implements PlanningEngine {
       generatedAt: new Date(),
     };
   }
+}
+
+function dayOffConvertedWarning(
+  context: PlanningContext,
+  assignment: ShiftAssignment,
+  serviceDate: string,
+): string {
+  const employee = context.employees.find(
+    (candidate) => candidate.id === assignment.employeeId,
+  );
+  const name = employee
+    ? `${employee.firstName} ${employee.lastName}`
+    : assignment.employeeId;
+
+  return `${serviceDate}: ${name}'s day off was converted to an early-finish ${assignment.shift} shift to avoid leaving it unfilled.`;
 }

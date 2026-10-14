@@ -1,5 +1,6 @@
-import { ShiftAssignment, shortfallWarnings, StaffingRequirement } from "@/domains";
 import { describe, expect, it } from "vitest";
+import { ShiftAssignment, StaffingRequirement } from "../../models";
+import { shortfallWarnings } from "../shortfall-warnings";
 
 
 function createRequirement(

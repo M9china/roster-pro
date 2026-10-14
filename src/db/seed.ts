@@ -114,10 +114,10 @@ async function seed() {
     "normal", // Mon
     "normal", // Tue
     "low", // Wed
-    "normal", // Thu
-    "high", // Fri
+    "high", // Thu
+    "very_high", // Fri
     "very_high", // Sat
-    "high", // Sun
+    "normal", // Sun
   ] as const;
 
   const forecasts = Array.from({ length: DAYS_IN_WEEK }, (_, i) => {

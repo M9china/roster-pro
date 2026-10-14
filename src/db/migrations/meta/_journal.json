@@ -43,6 +43,13 @@
       "when": 1788768845565,
       "tag": "0005_icy_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789767704184,
+      "tag": "0006_wise_thunderbolts",
+      "breakpoints": true
     }
   ]
 }
