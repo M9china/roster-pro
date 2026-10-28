@@ -1,1 +1,0 @@
-ALTER TABLE "rp_shift_assignments" ADD COLUMN "is_early_finish" boolean DEFAULT false NOT NULL;

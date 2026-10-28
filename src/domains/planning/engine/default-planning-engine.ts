@@ -1,22 +1,19 @@
 import type { ServiceForecast, SchedulingPolicy } from "@/db/schema";
 import { shortfallWarnings } from "./shortfall-warnings";
-import { isSameCalendarDay } from "../constants/date-utils";
-import {
-  AssignmentEngine,
-  PlanningContext,
-  PlanningEmployee,
-  PlanningEngine,
-  PlanningResult,
-  ShiftAssignment,
-  StaffingCalculator,
-} from "@/domains";
-
 import { allocateDaysOff } from "./days-off-allocator";
+import { isSameCalendarDay } from "../constants/date-utils";
+import { fillIdleDays } from "./idle-day-filler";
+import type { ValidationEngine } from "../validators/validation-engine";
+import { AssignmentEngine, PlanningContext, PlanningEmployee, PlanningEngine, PlanningResult, ShiftAssignment, StaffingCalculator } from "@/domains";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(
     private readonly staffingCalculator: StaffingCalculator,
     private readonly assignmentEngine: AssignmentEngine,
+    // Optional so existing callers/tests keep working. When supplied, any
+    // day an employee would otherwise be left blank is filled with a
+    // supplementary early-finish shift (see idle-day-filler.ts).
+    private readonly validationEngine?: ValidationEngine,
   ) {}
 
   generate(
@@ -87,6 +84,18 @@ export class DefaultPlanningEngine implements PlanningEngine {
       }
 
       assignments.push(...dayAssignments);
+    }
+
+    if (this.validationEngine) {
+      const filled = fillIdleDays(
+        context.employees,
+        assignments,
+        context.weekStart,
+        context.policy,
+        this.validationEngine,
+      );
+      assignments.splice(0, assignments.length, ...filled.assignments);
+      warnings.push(...filled.warnings);
     }
 
     return {

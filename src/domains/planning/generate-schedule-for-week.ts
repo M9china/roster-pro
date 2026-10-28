@@ -1,3 +1,7 @@
+import { restaurantRepository } from "@/db/repositories/restaurant.repository";
+import { employeeRepository } from "@/db/repositories/employee.repository";
+import { serviceForecastRepository } from "@/db/repositories/service-forecast.repository";
+import { scheduleRepository } from "@/db/repositories/schedule.repository";
 import type { ServiceForecast } from "@/db/schema";
 import type {
   Schedule,
@@ -9,14 +13,13 @@ import { DefaultPlanningEngine } from "./engine/default-planning-engine";
 import { DefaultStaffingCalculator } from "./calculators/default-staffing-calculator";
 import { DefaultAssignmentEngine } from "./assigners/default-assignment-engine";
 import { DefaultValidationEngine } from "./validators/validation-engine";
+import { MinimumRestValidator } from "./validators/minimum-rest.validator";
 import { DaysOffValidator } from "./validators/days-off.validator";
 import { DoubleShiftValidator } from "./validators/double-shift.validator";
 import { DefaultFairnessEngine } from "./fairness/default-fairness-engine";
 import { defaultFairnessFactors } from "./fairness/fairness-config";
 import { toPlanningEmployee, type PlanningEmployee } from "./models/employee";
 import { addDays, toISODateString } from "./constants/date-utils";
-import { MinimumRestValidator } from "./validators";
-import { employeeRepository, restaurantRepository, scheduleRepository, serviceForecastRepository } from "@/db/repositories";
 
 const DAYS_IN_WEEK = 7;
 
@@ -155,18 +158,23 @@ async function getOrCreateDraftSchedule(
 }
 
 function createDefaultPlanningEngine(): DefaultPlanningEngine {
+  const validationEngine = new DefaultValidationEngine([
+    new MinimumRestValidator(),
+    new DaysOffValidator(),
+    new DoubleShiftValidator(),
+  ]);
+
   return new DefaultPlanningEngine(
     new DefaultStaffingCalculator(),
     new DefaultAssignmentEngine(
-      new DefaultValidationEngine([
-        new MinimumRestValidator(),
-        new DaysOffValidator(),
-        new DoubleShiftValidator(),
-      ]),
+      validationEngine,
       // Reusing the codebase's own already-defined default weighting
       // (all 5 factors, equal weight) rather than inventing a new one --
       // this was built and tested but never actually wired in until now.
       new DefaultFairnessEngine(defaultFairnessFactors),
     ),
+    // Shared with the assignment engine so the idle-day fill obeys the
+    // exact same rules.
+    validationEngine,
   );
 }
