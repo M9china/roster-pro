@@ -4,7 +4,11 @@ import type { PlanningEmployee } from "../../models/employee";
 import type { StaffingRequirement } from "../../models/staffing-requirement";
 import type { ShiftAssignment } from "../../models/assigner";
 import { DefaultAssignmentEngine } from "../default-assignment-engine";
-import { DefaultValidationEngine } from "../../validators";
+import {
+  DefaultValidationEngine,
+  DaysOffValidator,
+  DoubleShiftValidator,
+} from "../../validators";
 import { DefaultFairnessEngine } from "../../fairness/default-fairness-engine";
 import { ShiftCountFactor } from "../../fairness/factors/shift-count-factor";
 import type { SchedulingPolicy } from "@/db/schema";
@@ -54,8 +58,8 @@ function createPolicy(
     closingShiftStart: "15:00:00",
     closingShiftEnd: "02:00:00",
     version: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -259,7 +263,7 @@ describe("DefaultAssignmentEngine", () => {
       ),
     ).toBe(true);
   });
-  it("assigns double shifts when required", () => {
+  it("assigns double shifts when required, replacing one opening and one closing slot", () => {
     const employees = [
       createEmployee({ id: "employee-1" }),
       createEmployee({ id: "employee-2" }),
@@ -286,11 +290,51 @@ describe("DefaultAssignmentEngine", () => {
       createPolicy(),
     );
 
-    const doubleShifts = assignments.filter(
-      (assignment) => assignment.shift === "double",
+    const count = (shift: string) =>
+      assignments.filter((assignment) => assignment.shift === shift).length;
+
+    // The double covers the opening and closing slots, so only the mid
+    // remains: 1 double + 1 mid, no separate opening/closing.
+    expect(count("double")).toBe(1);
+    expect(count("mid")).toBe(1);
+    expect(count("opening")).toBe(0);
+    expect(count("closing")).toBe(0);
+    expect(assignments).toHaveLength(2);
+  });
+
+  it("hands an unfillable double back as separate opening and closing slots", () => {
+    // Policy forbids doubles, so the double can't be placed; the engine
+    // must fall back to one opening and one closing instead of a blank.
+    const employees = [
+      createEmployee({ id: "employee-1" }),
+      createEmployee({ id: "employee-2" }),
+    ];
+
+    const requirement = createRequirement({
+      totalBartenders: 2,
+      openingBartenders: 1,
+      midBartenders: 0,
+      closingBartenders: 1,
+      doubleShifts: 1,
+    });
+
+    // A validator-free engine would happily place the double, so reject
+    // doubles through the real double-shift rule via the policy flag.
+    const engine = new DefaultAssignmentEngine(
+      new DefaultValidationEngine([new DoubleShiftValidator()]),
+      new DefaultFairnessEngine([]),
     );
 
-    expect(doubleShifts).toHaveLength(1);
+    const assignments = engine.assign(
+      employees,
+      requirement,
+      date,
+      createPolicy({ allowDoubleShift: false }),
+    );
+
+    expect(assignments.some((a) => a.shift === "double")).toBe(false);
+    expect(assignments.filter((a) => a.shift === "opening")).toHaveLength(1);
+    expect(assignments.filter((a) => a.shift === "closing")).toHaveLength(1);
   });
   it("does not create double shifts when none are required", () => {
     const employees = [
@@ -778,24 +822,41 @@ describe("DefaultAssignmentEngine", () => {
     });
 
     it("shares the daily early-finish budget across closing and double, not one each", () => {
-      const { employees, existingAssignments } = aboveAverageSetup();
+      // Two above-average candidates, each with a closing shift yesterday
+      // (so both exceed the team average), and one free employee slot per
+      // needed shift today. Only 1 early-finish grant exists for the day.
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+        createEmployee({ id: "employee-3" }),
+      ];
 
-      // Both a closing and a double slot needed, but only 1 early-finish
-      // grant available for the whole day. With empty validators (this
-      // test isolates the budget mechanic, not realistic scheduling
-      // rules), employee-1 ends up eligible for both slots and wins both
-      // on the fairness tie-break -- but only the first (closing) should
-      // consume the shared budget; if budget were wrongly reset between
-      // the two assignShifts passes, the double would also get marked.
+      const existingAssignments: ShiftAssignment[] = [
+        {
+          employeeId: "employee-1",
+          date: new Date("2026-08-27"),
+          shift: "closing",
+        },
+        {
+          employeeId: "employee-2",
+          date: new Date("2026-08-27"),
+          shift: "closing",
+        },
+        {
+          employeeId: "employee-3",
+          date: new Date("2026-08-28"),
+          shift: "opening",
+        },
+      ];
+
+      // opening 1 + closing 2 with 1 double -> slots: 1 double + 1 closing.
       const requirement = createRequirement({
-        openingBartenders: 0,
+        openingBartenders: 1,
         midBartenders: 0,
-        closingBartenders: 1,
+        closingBartenders: 2,
         doubleShifts: 1,
         earlyFinishes: 1,
       });
-
-      const policy = createPolicy({ allowEarlyFinish: true });
 
       const engine = new DefaultAssignmentEngine(
         new DefaultValidationEngine([]),
@@ -806,15 +867,200 @@ describe("DefaultAssignmentEngine", () => {
         employees,
         requirement,
         new Date("2026-08-28"),
-        policy,
+        createPolicy({ allowEarlyFinish: true }),
         existingAssignments,
       );
 
-      const earlyFinishCount = assignments.filter(
-        (a) => a.isEarlyFinish,
-      ).length;
+      expect(assignments.filter((a) => a.shift === "double")).toHaveLength(1);
+      expect(assignments.filter((a) => a.shift === "closing")).toHaveLength(1);
+      expect(assignments.filter((a) => a.isEarlyFinish)).toHaveLength(1);
+    });
+  });
 
-      expect(earlyFinishCount).toBe(1);
+  describe("never-blank fallback (day off -> early-finish shift)", () => {
+    const TODAY = new Date("2026-08-28");
+
+    function engineWith(
+      validators: ConstructorParameters<typeof DefaultValidationEngine>[0] = [],
+    ) {
+      return new DefaultAssignmentEngine(
+        new DefaultValidationEngine(validators),
+        new DefaultFairnessEngine([]),
+      );
+    }
+
+    function closingOnly(count: number) {
+      return createRequirement({
+        openingBartenders: 0,
+        midBartenders: 0,
+        closingBartenders: count,
+        doubleShifts: 0,
+        earlyFinishes: 0,
+      });
+    }
+
+    it("converts a day off into an early-finish shift rather than leaving the slot blank", () => {
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+      ];
+
+      // employee-1 is formally off; employee-2 already works today -- so
+      // nobody is normally eligible for the closing slot.
+      const existing: ShiftAssignment[] = [
+        { employeeId: "employee-1", date: TODAY, shift: "off" },
+        { employeeId: "employee-2", date: TODAY, shift: "opening" },
+      ];
+
+      const assignments = engineWith().assign(
+        employees,
+        closingOnly(1),
+        TODAY,
+        createPolicy({ allowEarlyFinish: true }),
+        existing,
+      );
+
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0]).toMatchObject({
+        employeeId: "employee-1",
+        shift: "closing",
+        isEarlyFinish: true,
+      });
+    });
+
+    it("prefers a normally eligible employee and leaves days off alone when one exists", () => {
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+      ];
+
+      const existing: ShiftAssignment[] = [
+        { employeeId: "employee-1", date: TODAY, shift: "off" },
+      ];
+
+      const assignments = engineWith().assign(
+        employees,
+        closingOnly(1),
+        TODAY,
+        createPolicy(),
+        existing,
+      );
+
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0].employeeId).toBe("employee-2");
+      expect(assignments[0].isEarlyFinish).toBeFalsy();
+    });
+
+    it("returns every newly created assignment even though a day-off record is removed from the seeded list", () => {
+      // Regression guard: employee-2 fills the first closing slot
+      // normally, then employee-1's day off is converted for the second.
+      // Removing the seeded "off" record shifts every index in the working
+      // list -- a return based on slicing from the original length would
+      // silently drop one of these two.
+      const employees = [
+        createEmployee({ id: "employee-1" }),
+        createEmployee({ id: "employee-2" }),
+      ];
+
+      const existing: ShiftAssignment[] = [
+        { employeeId: "employee-1", date: TODAY, shift: "off" },
+      ];
+
+      const assignments = engineWith().assign(
+        employees,
+        closingOnly(2),
+        TODAY,
+        createPolicy({ allowEarlyFinish: true }),
+        existing,
+      );
+
+      expect(assignments).toHaveLength(2);
+      expect(assignments.map((a) => a.employeeId).sort()).toEqual([
+        "employee-1",
+        "employee-2",
+      ]);
+      expect(
+        assignments.find((a) => a.employeeId === "employee-1")?.isEarlyFinish,
+      ).toBe(true);
+      expect(
+        assignments.find((a) => a.employeeId === "employee-2")?.isEarlyFinish,
+      ).toBeFalsy();
+    });
+
+    it("does not override a day off when the policy disallows early finishes", () => {
+      const employees = [createEmployee({ id: "employee-1" })];
+
+      const existing: ShiftAssignment[] = [
+        { employeeId: "employee-1", date: TODAY, shift: "off" },
+      ];
+
+      const assignments = engineWith().assign(
+        employees,
+        closingOnly(1),
+        TODAY,
+        createPolicy({ allowEarlyFinish: false }),
+        existing,
+      );
+
+      expect(assignments).toHaveLength(0);
+    });
+
+    it("still applies validators, evaluated as if the day-off record were not there", () => {
+      const employees = [createEmployee({ id: "employee-1" })];
+
+      const existing: ShiftAssignment[] = [
+        { employeeId: "employee-1", date: TODAY, shift: "off" },
+      ];
+
+      const seenLists: ShiftAssignment[][] = [];
+      const spyValidator = {
+        validate: (_e: unknown, _c: unknown, list: ShiftAssignment[]) => {
+          seenLists.push([...list]);
+          return true;
+        },
+      };
+
+      engineWith([spyValidator]).assign(
+        employees,
+        closingOnly(1),
+        TODAY,
+        createPolicy({ allowEarlyFinish: true }),
+        existing,
+      );
+
+      // Otherwise e.g. DoubleShiftValidator's "already has something
+      // today" check would always trip on the day-off record itself.
+      expect(seenLists.length).toBeGreaterThan(0);
+      expect(
+        seenLists.every((list) => !list.some((a) => a.shift === "off")),
+      ).toBe(true);
+    });
+
+    it("never overrides a day off past a real rule: the weekly working-days cap still holds", () => {
+      const employees = [createEmployee({ id: "employee-1" })];
+
+      // Worked Mon-Fri (5 days), formally off Saturday. Pulling them in
+      // Saturday would be a 6th working day -- exactly what the days-off
+      // validator exists to prevent.
+      const saturday = new Date("2026-08-29");
+      const existing: ShiftAssignment[] = [
+        ...["24", "25", "26", "27", "28"].map((day) => ({
+          employeeId: "employee-1",
+          date: new Date(`2026-08-${day}`),
+          shift: "opening" as const,
+        })),
+        { employeeId: "employee-1", date: saturday, shift: "off" },
+      ];
+
+      const assignments = engineWith([new DaysOffValidator()]).assign(
+        employees,
+        closingOnly(1),
+        saturday,
+        createPolicy({ allowEarlyFinish: true, daysOffPerWeek: 2 }),
+        existing,
+      );
+
+      expect(assignments).toHaveLength(0);
     });
   });
 });

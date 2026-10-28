@@ -4,7 +4,7 @@ import type { PlanningEmployee } from "../../models/employee";
 import type { SchedulingPolicy, ServiceForecast } from "@/db/schema";
 import type { StaffingCalculator } from "../../calculators/staffing-calculator";
 import type { StaffingRequirement } from "../../models/staffing-requirement";
-import { allocateDaysOff } from "../../days-off-allocator";
+import { allocateDaysOff } from "../../engine/days-off-allocator";
 
 // 2026-09-14 is a Monday: Mon 14, Tue 15, Wed 16, Thu 17, Fri 18, Sat 19,
 // Sun 20 -- Friday and Sunday are the hard-capped-at-1 days.

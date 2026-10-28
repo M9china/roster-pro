@@ -8,6 +8,7 @@ import type { FairnessAssignment } from "../fairness/fairness-assignment";
 import type { SchedulingPolicy } from "@/db/schema";
 import { isSameCalendarDay } from "../constants/date-utils";
 import { hoursWorkedSoFar } from "../constants/shift-time";
+import { toShiftSlots } from "../engine/shift-slots";
 
 /** A mutable, shared counter threaded through the closing and double
  * shift-filling passes for one day, so the day's early-finish budget
@@ -42,23 +43,10 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     const assignments: ShiftAssignment[] = [...existingAssignments];
     const existingRefs = new Set(existingAssignments);
 
-    this.assignShifts(
-      activeEmployees,
-      requirement.openingBartenders,
-      "opening",
-      date,
-      assignments,
-      policy,
-    );
-
-    this.assignShifts(
-      activeEmployees,
-      requirement.midBartenders,
-      "mid",
-      date,
-      assignments,
-      policy,
-    );
+    // What actually needs filling: each double replaces one opening and
+    // one closing slot (see toShiftSlots), so these counts are not the raw
+    // requirement's.
+    const slots = toShiftSlots(requirement);
 
     // Early finish only applies to closing/double (see assignShifts) --
     // shared across both passes so the day's budget (requirement.
@@ -67,20 +55,50 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
       remaining: policy.allowEarlyFinish ? requirement.earlyFinishes : 0,
     };
 
+    // Doubles go first. A double is a person with nothing else that day,
+    // so it needs to choose from the whole free pool -- filled last, it
+    // would only ever get whoever opening/mid/closing happened to leave
+    // over, which on a busy day is nobody (exactly why doubles used to
+    // come up empty every time).
     this.assignShifts(
       activeEmployees,
-      requirement.closingBartenders,
-      "closing",
+      slots.double,
+      "double",
       date,
       assignments,
       policy,
       earlyFinishBudget,
     );
 
+    // A double that couldn't be filled (nobody eligible, or the policy
+    // disallows doubles) must not take its replaced slots down with it --
+    // hand the opening and closing halves back so those get covered by
+    // regular shifts instead of silently disappearing from the day.
+    const uncoveredDoubles =
+      slots.double - this.countForShiftToday(assignments, "double", date);
+
     this.assignShifts(
       activeEmployees,
-      requirement.doubleShifts,
-      "double",
+      slots.opening + uncoveredDoubles,
+      "opening",
+      date,
+      assignments,
+      policy,
+    );
+
+    this.assignShifts(
+      activeEmployees,
+      slots.mid,
+      "mid",
+      date,
+      assignments,
+      policy,
+    );
+
+    this.assignShifts(
+      activeEmployees,
+      slots.closing + uncoveredDoubles,
+      "closing",
       date,
       assignments,
       policy,
@@ -265,14 +283,12 @@ export class DefaultAssignmentEngine implements AssignmentEngine {
     assignments: ShiftAssignment[],
     policy: SchedulingPolicy,
   ): boolean {
-    // Normal shifts can only go to an employee who doesn't already have a
-    // shift that day. Double shifts are the exception -- they explicitly
-    // represent working twice in one day (DoubleShiftValidator is what
-    // actually gates whether that's allowed).
-    if (
-      shift !== "double" &&
-      this.hasAssignmentForDate(employee.id, date, assignments)
-    ) {
+    // Nobody holds two shifts in a day -- a double included. A double is
+    // one person covering both ends of the day, not a second booking on
+    // top of another shift, so it follows the same rule as every other
+    // shift (DoubleShiftValidator additionally gates whether doubles are
+    // allowed at all).
+    if (this.hasAssignmentForDate(employee.id, date, assignments)) {
       return false;
     }
 

@@ -11,7 +11,7 @@ import {
   StaffingCalculator,
 } from "@/domains";
 
-import { allocateDaysOff } from "../days-off-allocator";
+import { allocateDaysOff } from "./days-off-allocator";
 
 export class DefaultPlanningEngine implements PlanningEngine {
   constructor(

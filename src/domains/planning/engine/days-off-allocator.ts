@@ -1,7 +1,10 @@
 import type { SchedulingPolicy, ServiceForecast } from "@/db/schema";
-import { PlanningEmployee, ShiftAssignment } from "./models";
-import { StaffingCalculator } from "./calculators";
-import { addDays, toISODateString } from "./constants";
+
+import type { PlanningEmployee } from "../models/employee";
+import type { ShiftAssignment } from "../models/assigner";
+import type { StaffingCalculator } from "../calculators/staffing-calculator";
+import { toShiftSlots } from "./shift-slots";
+import { addDays, toISODateString } from "../constants/date-utils";
 
 const DAYS_IN_WEEK = 7;
 const FRIDAY = 5; // Date#getUTCDay(): 0 = Sunday ... 6 = Saturday
@@ -52,14 +55,17 @@ export function allocateDaysOff(
   const weekDates = Array.from({ length: DAYS_IN_WEEK }, (_, i) =>
     addDays(weekStart, i),
   );
-  const dateIndex = new Map(
-    weekDates.map((date, i) => [date.toISOString(), i]),
-  );
+  const dateIndex = new Map(weekDates.map((date, i) => [date.toISOString(), i]));
 
   const capacity = new Map<string, number>(
     weekDates.map((date) => {
       const key = date.toISOString();
-      const needed = requiredHeadcount(date, forecasts, staffingCalculator);
+      const needed = requiredHeadcount(
+        date,
+        forecasts,
+        staffingCalculator,
+        policy,
+      );
       const bySupply = Math.max(0, activeEmployees.length - needed);
       const dayOfWeek = date.getUTCDay();
       const cap =
@@ -102,13 +108,11 @@ export function allocateDaysOff(
         }
 
         const rankA =
-          ((((dateIndex.get(a.toISOString()) ?? 0) - employeeIndex) %
-            DAYS_IN_WEEK) +
+          (((dateIndex.get(a.toISOString()) ?? 0) - employeeIndex) % DAYS_IN_WEEK +
             DAYS_IN_WEEK) %
           DAYS_IN_WEEK;
         const rankB =
-          ((((dateIndex.get(b.toISOString()) ?? 0) - employeeIndex) %
-            DAYS_IN_WEEK) +
+          (((dateIndex.get(b.toISOString()) ?? 0) - employeeIndex) % DAYS_IN_WEEK +
             DAYS_IN_WEEK) %
           DAYS_IN_WEEK;
 
@@ -132,14 +136,16 @@ export function allocateDaysOff(
 }
 
 /**
- * Every bartender slot a day needs -- opening, mid, closing, and double --
- * each requires a genuinely available person, so all four count toward
- * how many people that day can safely lose to a day off.
+ * How many distinct people a day needs, after the replacement rule for
+ * doubles (a double stands in for one opening and one closing slot -- see
+ * toShiftSlots). This, not the raw sum of the requirement's fields, is
+ * what determines how many people that day can safely lose to a day off.
  */
 function requiredHeadcount(
   date: Date,
   forecasts: ServiceForecast[],
   staffingCalculator: StaffingCalculator,
+  policy: SchedulingPolicy,
 ): number {
   const forDate = forecasts.filter(
     (forecast) => forecast.serviceDate === toISODateString(date),
@@ -151,12 +157,17 @@ function requiredHeadcount(
 
   const requirement = staffingCalculator.calculate(forecast);
 
-  return (
-    requirement.openingBartenders +
-    requirement.midBartenders +
-    requirement.closingBartenders +
-    requirement.doubleShifts
-  );
+  // If the policy disallows doubles, none can ever be worked, so nothing
+  // is replaced and every opening/mid/closing slot needs its own person.
+  if (!policy.allowDoubleShift) {
+    return (
+      requirement.openingBartenders +
+      requirement.midBartenders +
+      requirement.closingBartenders
+    );
+  }
+
+  return toShiftSlots(requirement).peopleNeeded;
 }
 
 /**

@@ -6,7 +6,7 @@ export * from './constants';
 export * from './generate-schedule-for-week';
 export * from './models';
 export * from './validators';
-export * from './days-off-allocator';
+export * from './engine/days-off-allocator';
 
 
 
